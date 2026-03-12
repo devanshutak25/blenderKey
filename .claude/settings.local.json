@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la \"C:\\\\Users\\\\Devanshu\\\\.claude\\\\projects\\\\G--Personal-blenderKey\\\\memory\\\\\" 2>/dev/null || echo \"Memory directory not found\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('G:/Personal/blenderKey/keymap_visualizer/__init__.py', doraise=True\\)\" 2>&1)"
+    ]
+  }
+}
