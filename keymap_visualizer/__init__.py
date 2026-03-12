@@ -48,6 +48,9 @@ def unregister():
     state._hovered_key_index = -1
     state._selected_key_index = -1
 
+    from .icons import cleanup_icons
+    cleanup_icons()
+
     bpy.types.VIEW3D_HT_header.remove(_draw_header_button)
     for cls in reversed(_classes):
         bpy.utils.unregister_class(cls)

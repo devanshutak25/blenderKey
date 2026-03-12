@@ -202,6 +202,11 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
         state._redo_stack.clear()
         # v0.9 Feature 5: Shortcut search cleanup
         state._shortcut_search_active = False
+        # Icon feature: cleanup
+        state._key_editor_icons_cache = {}
+        state._key_editor_icons_dirty = True
+        from .icons import cleanup_icons
+        cleanup_icons()
         # v0.9 Feature 6: Presets cleanup
         state._presets_list = []
         state._active_preset_name = ""

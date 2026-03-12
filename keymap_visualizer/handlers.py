@@ -228,7 +228,7 @@ def _handle_idle(context, event):
                 # Store all bindings for Feature 5
                 state._menu_context['all_bindings'] = bindings
                 # Keep first binding as default target for backward compat
-                km_name, op_id, mod_str, kmi, is_active = bindings[0]
+                km_name, op_id, mod_str, kmi, is_active = bindings[0][:5]
                 state._menu_context['target_kmi'] = kmi
                 state._menu_context['target_km_name'] = km_name
                 state._menu_context['pending_action'] = None
@@ -291,7 +291,7 @@ def _handle_menu_open(context, event):
             # Feature 5: Look up kmi from the specific binding
             all_bindings = state._menu_context.get('all_bindings', [])
             if 0 <= binding_index < len(all_bindings):
-                km_name, op_id, mod_str, kmi, is_active = all_bindings[binding_index]
+                km_name, op_id, mod_str, kmi, is_active = all_bindings[binding_index][:5]
             else:
                 kmi = state._menu_context.get('target_kmi')
                 km_name = state._menu_context.get('target_km_name')

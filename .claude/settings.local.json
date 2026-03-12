@@ -13,7 +13,9 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:spencer-magnusson.beehiiv.com)",
       "Bash(cd \"G:/Personal/blenderKey\" && python -m py_compile keymap_visualizer/state.py && python -m py_compile keymap_visualizer/constants.py && python -m py_compile keymap_visualizer/preferences.py && python -m py_compile keymap_visualizer/layout.py && python -m py_compile keymap_visualizer/keymap_data.py && python -m py_compile keymap_visualizer/hit_testing.py && echo \"All files compile OK\")",
-      "Bash(python -c \"\nimport ast\nfor f in ['drawing.py', 'preferences.py']:\n    try:\n        ast.parse\\(open\\(f'keymap_visualizer/{f}', encoding='utf-8'\\).read\\(\\)\\)\n        print\\(f'  OK: {f}'\\)\n    except SyntaxError as e:\n        print\\(f'  FAIL: {f} - {e}'\\)\n\")"
+      "Bash(python -c \"\nimport ast\nfor f in ['drawing.py', 'preferences.py']:\n    try:\n        ast.parse\\(open\\(f'keymap_visualizer/{f}', encoding='utf-8'\\).read\\(\\)\\)\n        print\\(f'  OK: {f}'\\)\n    except SyntaxError as e:\n        print\\(f'  FAIL: {f} - {e}'\\)\n\")",
+      "Bash(cd \"G:/Personal/blenderKey\" && python3 -m py_compile keymap_visualizer/icons.py && python3 -m py_compile keymap_visualizer/constants.py && python3 -m py_compile keymap_visualizer/state.py && echo \"All syntax OK\")",
+      "Bash(cd \"G:/Personal/blenderKey\" && python3 -c \"\nimport ast, sys\nfiles = [\n    'keymap_visualizer/drawing.py',\n    'keymap_visualizer/handlers.py',\n    'keymap_visualizer/operators.py',\n    'keymap_visualizer/keymap_data.py',\n    'keymap_visualizer/__init__.py',\n]\nok = True\nfor f in files:\n    try:\n        with open\\(f, 'r'\\) as fh:\n            ast.parse\\(fh.read\\(\\)\\)\n        print\\(f'{f}: OK'\\)\n    except SyntaxError as e:\n        print\\(f'{f}: SYNTAX ERROR: {e}'\\)\n        ok = False\nif ok:\n    print\\('All files OK'\\)\n\")"
     ]
   }
 }

@@ -58,7 +58,7 @@ def _get_bindings_for_key(event_type, modifiers):
                 mod_parts.append("OS")
             mod_str = "+".join(mod_parts) if mod_parts else ""
 
-            results.append((km.name, kmi.idname, mod_str, kmi, kmi.active))
+            results.append((km.name, kmi.idname, mod_str, kmi, kmi.active, km.space_type))
             if len(results) >= 20:
                 break
         if len(results) >= 20:
@@ -111,7 +111,7 @@ def _get_all_bindings_for_key(event_type):
                 mod_parts.append("OS")
             mod_str = "+".join(mod_parts) if mod_parts else ""
 
-            entry = (km.name, kmi.idname, mod_str, kmi, kmi.active)
+            entry = (km.name, kmi.idname, mod_str, kmi, kmi.active, km.space_type)
             if (kmi.ctrl == effective['ctrl'] and kmi.shift == effective['shift'] and
                     kmi.alt == effective['alt'] and kmi.oskey == effective['oskey']):
                 matching.append(entry)
@@ -280,6 +280,39 @@ def _compute_key_labels():
                 state._key_labels_cache[kmi.type] = _get_operator_abbreviation(kmi.idname)
 
     state._key_labels_dirty = False
+
+
+# ---------------------------------------------------------------------------
+# Icon feature: Per-key editor icon cache
+# ---------------------------------------------------------------------------
+def _compute_key_editor_icons():
+    """Compute the primary editor icon (space_type) for each key."""
+    if not state._key_editor_icons_dirty:
+        return
+    state._key_editor_icons_cache = {}
+    wm = bpy.context.window_manager
+    kc = wm.keyconfigs.user
+    if kc is None:
+        state._key_editor_icons_dirty = False
+        return
+
+    effective = state._get_effective_modifiers()
+
+    for km in kc.keymaps:
+        if not _km_passes_filter(km):
+            continue
+        for kmi in km.keymap_items:
+            if not kmi.active:
+                continue
+            if (kmi.ctrl != effective['ctrl'] or kmi.shift != effective['shift'] or
+                    kmi.alt != effective['alt'] or kmi.oskey != effective['oskey']):
+                continue
+            # Only store first (highest priority) binding's space_type per key
+            if kmi.type not in state._key_editor_icons_cache:
+                if km.space_type and km.space_type != 'EMPTY':
+                    state._key_editor_icons_cache[kmi.type] = km.space_type
+
+    state._key_editor_icons_dirty = False
 
 
 # ---------------------------------------------------------------------------

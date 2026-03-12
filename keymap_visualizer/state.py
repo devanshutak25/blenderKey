@@ -93,6 +93,10 @@ _key_categories_cache = {}   # {event_type: "category_name"}
 _key_categories_dirty = True
 _category_colors_enabled = True
 
+# Icon feature: Per-key editor icon cache
+_key_editor_icons_cache = {}   # {event_type: space_type}
+_key_editor_icons_dirty = True
+
 # v0.9 Feature 4: Undo/redo for keymap changes
 _undo_stack = []    # list of [{'kmi': kmi_ref, 'before': {snapshot}}, ...]
 _redo_stack = []
@@ -131,13 +135,14 @@ _launch_retry_count = 0
 
 def _invalidate_cache():
     """Invalidate binding cache and mark batches dirty."""
-    global _bindings_key, _all_bindings_key, _batch_dirty, _bound_keys_dirty, _key_labels_dirty, _key_categories_dirty
+    global _bindings_key, _all_bindings_key, _batch_dirty, _bound_keys_dirty, _key_labels_dirty, _key_categories_dirty, _key_editor_icons_dirty
     _bindings_key = None
     _all_bindings_key = None
     _batch_dirty = True
     _bound_keys_dirty = True
     _key_labels_dirty = True
     _key_categories_dirty = True
+    _key_editor_icons_dirty = True
 
 
 def _get_effective_modifiers():

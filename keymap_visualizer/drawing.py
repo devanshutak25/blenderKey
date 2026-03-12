@@ -13,7 +13,6 @@ from gpu_extras.batch import batch_for_shader
 from . import state
 from .constants import (
     KEYBOARD_ROWS, _MODIFIER_EVENTS, MODIFIER_KEY_TO_DICT,
-    EDITOR_ICONS, MODE_ICONS,
     COL_BG, COL_KEY_DEFAULT, COL_KEY_HOVER, COL_KEY_SELECTED, COL_KEY_MODIFIER,
     COL_KEY_INACTIVE, COL_BORDER, COL_BORDER_HIGHLIGHT, COL_TEXT, COL_TEXT_DIM,
     COL_TOGGLE_ACTIVE, COL_TOGGLE_INACTIVE, COL_INFO_BG,
@@ -46,7 +45,10 @@ def _ensure_font_loaded():
     return _blender_font_id
 from .keymap_data import (
     _get_bindings_for_key, _get_all_bindings_for_key, _compute_bound_keys,
-    _compute_key_labels, _compute_key_categories,
+    _compute_key_labels, _compute_key_categories, _compute_key_editor_icons,
+)
+from .icons import (
+    _load_icons, get_editor_icon, get_mode_icon, get_km_icon,
 )
 from .layout import _compute_keyboard_layout
 
@@ -199,6 +201,17 @@ def _draw_rect_border(shader, x, y, w, h, color):
     batch.draw(shader)
 
 
+def _draw_icon(texture, x, y, size):
+    """Draw an icon texture at (x, y) with given size."""
+    if texture is None:
+        return
+    try:
+        from gpu_extras.presets import draw_texture_2d
+        draw_texture_2d(texture, (x, y), size, size)
+    except Exception:
+        pass
+
+
 def _lerp_color(a, b, t):
     """Linearly interpolate between two RGBA colors."""
     return tuple(a[i] + (b[i] - a[i]) * t for i in range(4))
@@ -287,7 +300,7 @@ def _build_gpu_menu(mx, my, region_width, region_height, bindings=None):
     menu_entries = []
     max_bindings = min(len(bindings), 5)
     for bi in range(max_bindings):
-        km_name, op_id, mod_str, kmi, is_active = bindings[bi]
+        km_name, op_id, mod_str, kmi, is_active = bindings[bi][:5]
         prefix = f"[{mod_str}] " if mod_str else ""
         active_tag = "" if is_active else "[inactive] "
         header_label = f"{active_tag}{prefix}{op_id}"
@@ -414,6 +427,9 @@ def _draw_callback():
                   f"(region={rw}x{rh}, {len(state._key_rects)} keys)")
             _draw_callback_count = -1
 
+        # Load icon textures (lazy, runs once)
+        _load_icons()
+
         # Hover transition (Phase 7)
         now = time.monotonic()
         dt = min(now - state._last_frame_time, 0.1) if state._last_frame_time > 0 else 0.016
@@ -428,6 +444,7 @@ def _draw_callback():
         _compute_bound_keys()
         _compute_key_labels()
         _compute_key_categories()
+        _compute_key_editor_icons()
 
         colors = _get_colors()
         category_colors_enabled = _get_category_colors_enabled()
@@ -674,6 +691,17 @@ def _draw_callback():
                     blf.position(font_id, tx, ty, 0)
                     blf.draw(font_id, kr.label)
 
+                # Draw small editor icon in top-right corner for bound keys
+                key_space_type = state._key_editor_icons_cache.get(kr.event_type)
+                if key_space_type and kr.w >= unit_px * 0.8:
+                    key_icon_tex = get_km_icon(key_space_type)
+                    if key_icon_tex:
+                        key_icon_sz = int(kr.h * 0.3)
+                        _draw_icon(key_icon_tex,
+                                   kr.x + kr.w - key_icon_sz - 2,
+                                   kr.y + kr.h - key_icon_sz - 2,
+                                   key_icon_sz)
+
         # --- F2. Export button (Phase 6) ---
         if state._export_button_rect is not None:
             ex, ey, ew, eh = state._export_button_rect
@@ -737,16 +765,23 @@ def _draw_callback():
                     blf.size(font_id, font_size)
                     blf.color(font_id, *colors['text'])
                     flabel = _get_filter_label(filter_type)
+                    # Draw PNG icon
                     if filter_type == 'EDITOR':
-                        icon = EDITOR_ICONS.get(state._filter_space_type, "")
+                        icon_tex = get_editor_icon(state._filter_space_type)
                     else:
-                        icon = MODE_ICONS.get(state._filter_mode, "")
-                    flabel = f"{icon} {flabel}"
+                        icon_tex = get_mode_icon(state._filter_mode)
+                    icon_size = int(fbh * 0.6)
+                    icon_x = fbx + 4
+                    icon_y = fby + (fbh - icon_size) / 2
+                    _draw_icon(icon_tex, icon_x, icon_y, icon_size)
+                    # Shift text right to make room for icon
+                    text_x = icon_x + icon_size + 4 if icon_tex else fbx + 4
                     tw, th = blf.dimensions(font_id, flabel)
-                    while tw > fbw - 10 and len(flabel) > 3:
+                    avail_w = fbw - (text_x - fbx) - 4
+                    while tw > avail_w and len(flabel) > 3:
                         flabel = flabel[:-4] + "..."
                         tw, th = blf.dimensions(font_id, flabel)
-                    blf.position(font_id, fbx + (fbw - tw) / 2, fby + (fbh - th) / 2, 0)
+                    blf.position(font_id, text_x + (avail_w - tw) / 2, fby + (fbh - th) / 2, 0)
                     blf.draw(font_id, flabel)
 
         # --- Feature 4: Filter dropdown ---
@@ -774,12 +809,21 @@ def _draw_callback():
                 if unit_px >= 20:
                     blf.size(font_id, font_size)
                     blf.color(font_id, *colors['text'])
-                    icons = EDITOR_ICONS if state._filter_dropdown_open == 'EDITOR' else MODE_ICONS
-                    icon = icons.get(dvalue, "")
+                    # Draw PNG icon for dropdown item
+                    if state._filter_dropdown_open == 'EDITOR':
+                        dd_icon_tex = get_editor_icon(dvalue)
+                    else:
+                        dd_icon_tex = get_mode_icon(dvalue)
+                    dd_icon_size = int(dh * 0.65)
+                    dd_icon_x = dx + 4
+                    dd_icon_y = dy + (dh - dd_icon_size) / 2
+                    _draw_icon(dd_icon_tex, dd_icon_x, dd_icon_y, dd_icon_size)
+                    # Shift text right
+                    dd_text_x = dd_icon_x + dd_icon_size + 4 if dd_icon_tex else dx + 8
                     prefix = "* " if dvalue == current_value else "  "
-                    display_text = f"{icon} {prefix}{dlabel}"
+                    display_text = f"{prefix}{dlabel}"
                     tw, th = blf.dimensions(font_id, display_text)
-                    blf.position(font_id, dx + 8, dy + (dh - th) / 2, 0)
+                    blf.position(font_id, dd_text_x, dy + (dh - th) / 2, 0)
                     blf.draw(font_id, display_text)
 
         # --- v0.9 Feature 6: Preset dropdown ---
@@ -909,16 +953,30 @@ def _draw_callback():
 
             blf.color(font_id, *colors['text'])
             header = f"Key: {kr.label} ({kr.event_type})"
-            if state._filter_space_type != 'ALL' or state._filter_mode != 'ALL':
+            header_has_filter = (state._filter_space_type != 'ALL' or state._filter_mode != 'ALL')
+            if header_has_filter:
                 filter_parts = []
                 if state._filter_space_type != 'ALL':
-                    icon = EDITOR_ICONS.get(state._filter_space_type, "")
-                    filter_parts.append(f"{icon} {_get_filter_label('EDITOR')}")
+                    filter_parts.append(_get_filter_label('EDITOR'))
                 if state._filter_mode != 'ALL':
-                    icon = MODE_ICONS.get(state._filter_mode, "")
-                    filter_parts.append(f"{icon} {_get_filter_label('MODE')}")
+                    filter_parts.append(_get_filter_label('MODE'))
                 header += f"  [{' / '.join(filter_parts)}]"
-            blf.position(font_id, info_x + 10, info_y + info_h - info_font_size - 5, 0)
+            header_x = info_x + 10
+            header_y = info_y + info_h - info_font_size - 5
+            # Draw filter icons inline before header text
+            if header_has_filter:
+                hdr_icon_size = int(info_font_size * 1.2)
+                if state._filter_space_type != 'ALL':
+                    hdr_icon_tex = get_editor_icon(state._filter_space_type)
+                    _draw_icon(hdr_icon_tex, header_x, header_y - 1, hdr_icon_size)
+                    if hdr_icon_tex:
+                        header_x += hdr_icon_size + 2
+                if state._filter_mode != 'ALL':
+                    hdr_icon_tex = get_mode_icon(state._filter_mode)
+                    _draw_icon(hdr_icon_tex, header_x, header_y - 1, hdr_icon_size)
+                    if hdr_icon_tex:
+                        header_x += hdr_icon_size + 2
+            blf.position(font_id, header_x, header_y, 0)
             blf.draw(font_id, header)
 
             if bindings:
@@ -929,8 +987,10 @@ def _draw_callback():
                 max_rows = max(1, int((info_h - info_font_size - 15) / line_h))
                 total_shown = min(len(bindings), max_rows * 2)
 
+                bind_icon_size = int(info_font_size * 1.0)
                 for j in range(total_shown):
-                    km_name, op_id, mod_str, kmi, is_active = bindings[j]
+                    km_name, op_id, mod_str, kmi, is_active = bindings[j][:5]
+                    km_space_type = bindings[j][5] if len(bindings[j]) > 5 else ''
                     prefix = f"[{mod_str}] " if mod_str else ""
                     active_tag = "" if is_active else "[inactive] "
                     line = f"{active_tag}{prefix}{op_id}  ({km_name})"
@@ -948,7 +1008,11 @@ def _draw_callback():
                     ly = info_y + info_h - info_font_size - 5 - (row + 1) * line_h
                     if ly < info_y + 5:
                         break
-                    blf.position(font_id, cx, ly, 0)
+                    # Draw editor icon for this binding
+                    bind_icon_tex = get_km_icon(km_space_type)
+                    _draw_icon(bind_icon_tex, cx, ly - 1, bind_icon_size)
+                    text_offset = bind_icon_size + 3 if bind_icon_tex else 0
+                    blf.position(font_id, cx + text_offset, ly, 0)
                     blf.draw(font_id, line)
                 if len(bindings) > total_shown:
                     blf.color(font_id, *colors['text_dim'])
@@ -1096,8 +1160,17 @@ def _draw_callback():
                     _draw_rect(shader_uniform, mx, my, mw, mh, mcol)
                     blf.size(font_id, info_font_size)
                     blf.color(font_id, *colors['text_dim'])
+                    # Draw editor icon before header text
+                    menu_icon_size = int(mh * 0.7)
+                    menu_text_x = mx + 8
+                    all_bindings = state._menu_context.get('all_bindings', [])
+                    if 0 <= mbind_idx < len(all_bindings) and len(all_bindings[mbind_idx]) > 5:
+                        menu_icon_tex = get_km_icon(all_bindings[mbind_idx][5])
+                        _draw_icon(menu_icon_tex, mx + 4, my + (mh - menu_icon_size) / 2, menu_icon_size)
+                        if menu_icon_tex:
+                            menu_text_x = mx + menu_icon_size + 8
                     tw, th = blf.dimensions(font_id, mlabel)
-                    blf.position(font_id, mx + 8, my + (mh - th) / 2, 0)
+                    blf.position(font_id, menu_text_x, my + (mh - th) / 2, 0)
                     blf.draw(font_id, mlabel)
                 else:
                     mcol = colors['menu_hover'] if mi_idx == state._gpu_menu_hovered else colors['menu_bg']
