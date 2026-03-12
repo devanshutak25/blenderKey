@@ -5,7 +5,7 @@ Keymap Visualizer – State machine event handlers
 import time
 from . import state
 from .hit_testing import (
-    _hit_test_key, _hit_test_modifier, _hit_test_export,
+    _hit_test_key, _hit_test_export,
     _hit_test_conflict_buttons, _hit_test_gpu_menu,
     _hit_test_close, _hit_test_resize,
     _hit_test_filter_buttons, _hit_test_filter_dropdown,
@@ -18,7 +18,7 @@ from .keymap_data import (
 )
 from .export import _do_export
 from .drawing import _build_gpu_menu, _build_filter_dropdown, _build_preset_dropdown
-from .constants import _CAPTURABLE_KEYS
+from .constants import _CAPTURABLE_KEYS, MODIFIER_KEY_TO_DICT
 
 
 # ---------------------------------------------------------------------------
@@ -191,22 +191,25 @@ def _handle_idle(context, event):
                 state._target_area.tag_redraw()
             return {'RUNNING_MODAL'}
 
-        # Check modifier toggles
-        mod_hit = _hit_test_modifier(mx, my)
-        if mod_hit is not None:
-            state._active_modifiers[mod_hit] = not state._active_modifiers[mod_hit]
-            state._invalidate_cache()
-            if state._target_area is not None:
-                state._target_area.tag_redraw()
-            return {'RUNNING_MODAL'}
-
         # Check key hit
         key_hit = _hit_test_key(mx, my)
-        if key_hit != state._selected_key_index:
-            state._selected_key_index = key_hit
-            state._batch_dirty = True
-            if state._target_area is not None:
-                state._target_area.tag_redraw()
+        if key_hit >= 0:
+            kr = state._key_rects[key_hit]
+            # Modifier keys toggle their modifier instead of selecting
+            if kr.event_type in MODIFIER_KEY_TO_DICT:
+                dict_key = MODIFIER_KEY_TO_DICT[kr.event_type]
+                state._active_modifiers[dict_key] = not state._active_modifiers[dict_key]
+                state._invalidate_cache()
+                state._batch_dirty = True
+                if state._target_area is not None:
+                    state._target_area.tag_redraw()
+                return {'RUNNING_MODAL'}
+            # Normal key selection
+            if key_hit != state._selected_key_index:
+                state._selected_key_index = key_hit
+                state._batch_dirty = True
+                if state._target_area is not None:
+                    state._target_area.tag_redraw()
         return {'RUNNING_MODAL'}
 
     # Right-click: context menu (Feature 5: enhanced with all bindings)
@@ -215,6 +218,8 @@ def _handle_idle(context, event):
         key_hit = _hit_test_key(mx, my)
         if key_hit >= 0:
             kr = state._key_rects[key_hit]
+            if kr.event_type in MODIFIER_KEY_TO_DICT:
+                return {'RUNNING_MODAL'}  # no context menu for modifier keys
             bindings = _get_bindings_for_key(kr.event_type, state._active_modifiers)
             if bindings:
                 state._menu_context.clear()

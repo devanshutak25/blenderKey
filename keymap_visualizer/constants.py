@@ -117,14 +117,14 @@ KEYBOARD_ROWS = [
 NAV_CLUSTER_ROWS = [
     # Row 0 (bottom, aligned with shift row)
     [
-        ("Left", "LEFT_ARROW", 1.0),
-        ("Down", "DOWN_ARROW", 1.0),
-        ("Right", "RIGHT_ARROW", 1.0),
+        ("\u25C0", "LEFT_ARROW", 1.0),
+        ("\u25BC", "DOWN_ARROW", 1.0),
+        ("\u25B6", "RIGHT_ARROW", 1.0),
     ],
     # Row 1 (aligned with home row)
     [
         1.0,  # gap to center Up arrow above Down arrow
-        ("Up", "UP_ARROW", 1.0),
+        ("\u25B2", "UP_ARROW", 1.0),
     ],
     # Row 2 (aligned with QWERTY row): End / PgDn
     [
@@ -166,6 +166,48 @@ NUMPAD_ROW_ALIGNMENT = [0, 1, 2, 3, 4]
 _MODIFIER_EVENTS = {
     "LEFT_CTRL", "RIGHT_CTRL", "LEFT_SHIFT", "RIGHT_SHIFT",
     "LEFT_ALT", "RIGHT_ALT", "OSKEY",
+}
+
+# Modifier key event type → toggle dict key mapping
+MODIFIER_KEY_TO_DICT = {
+    'LEFT_CTRL': 'ctrl', 'RIGHT_CTRL': 'ctrl',
+    'LEFT_SHIFT': 'shift', 'RIGHT_SHIFT': 'shift',
+    'LEFT_ALT': 'alt', 'RIGHT_ALT': 'alt',
+    'OSKEY': 'oskey',
+}
+
+# ---------------------------------------------------------------------------
+# Unicode icon constants for editor/mode labels
+# ---------------------------------------------------------------------------
+EDITOR_ICONS = {
+    'ALL': "\u2630",            # ☰
+    'EMPTY': "\u2726",          # ✦
+    'VIEW_3D': "\u25A6",        # ▦
+    'IMAGE_EDITOR': "\u25A3",   # ▣
+    'NODE_EDITOR': "\u2B21",    # ⬡
+    'TEXT_EDITOR': "\u2261",    # ≡
+    'SEQUENCE_EDITOR': "\u25B6",# ▶
+    'CLIP_EDITOR': "\u2702",    # ✂
+    'DOPESHEET_EDITOR': "\u2505",# ┅
+    'GRAPH_EDITOR': "\u223F",   # ∿
+    'NLA_EDITOR': "\u266B",     # ♫
+    'PROPERTIES': "\u2699",     # ⚙
+    'OUTLINER': "\u2502",       # │
+    'CONSOLE': "\u003E",        # >
+    'SPREADSHEET': "\u25A4",    # ▤
+}
+
+MODE_ICONS = {
+    'ALL': "\u2630",            # ☰
+    'Object Mode': "\u25CB",    # ○
+    'Mesh': "\u25B3",           # △
+    'Sculpt': "\u2666",         # ♦
+    'Pose': "\u2662",           # ♢
+    'Weight Paint': "\u2593",   # ▓
+    'Vertex Paint': "\u2592",   # ▒
+    'Texture Paint': "\u2591",  # ░
+    'Grease Pencil': "\u270E",  # ✎
+    'Curves': "\u223F",         # ∿
 }
 
 # ---------------------------------------------------------------------------

@@ -16,12 +16,11 @@ def _compute_keyboard_layout(region_width, region_height):
     state._batch_dirty = True
 
     # Unit size: fit keyboard to fill the window in both dimensions.
-    # Horizontal: ~22 units total (keyboard + nav cluster + margins)
-    # Vertical: ~13 units (info panel 3 + gap 0.5 + keys 6 + gap 0.3 + toggles 0.7
-    #            + gap 0.3 + filters 0.7 + padding ~1.5)
+    # Horizontal: wider divisor for more room per key
+    # Vertical: 12 units (no separate toggle bar row)
     # Feature 2: Apply user scale
-    unit_from_w = region_width / 27
-    unit_from_h = region_height / 13
+    unit_from_w = region_width / 24
+    unit_from_h = region_height / 12
     unit_px = min(unit_from_w, unit_from_h) * state._user_scale
     if unit_px < 8:
         return  # Don't update _cached_region_size so draw callback retries
@@ -103,50 +102,30 @@ def _compute_keyboard_layout(region_width, region_height):
                 state._key_rects.append(KeyRect(label, event_type, x, y, w, h))
                 x += width_u * unit_px
 
-    # Build modifier toggle rects (above keyboard)
-    toggle_labels = [("Ctrl", "ctrl"), ("Shift", "shift"), ("Alt", "alt"), ("OS", "oskey")]
-    toggle_y = start_y + len(KEYBOARD_ROWS) * unit_px + unit_px * 0.3
-    toggle_w = unit_px * 2
-    toggle_h = unit_px * 0.7
-    toggle_gap = unit_px * 0.3
-    total_toggle_w = len(toggle_labels) * toggle_w + (len(toggle_labels) - 1) * toggle_gap
-    toggle_start_x = (region_width - total_toggle_w) / 2
-    for i, (label, key) in enumerate(toggle_labels):
-        tx = toggle_start_x + i * (toggle_w + toggle_gap)
-        state._modifier_rects.append((label, key, tx, toggle_y, toggle_w, toggle_h))
-
-    # Export button (to the right of modifier toggles)
-    if state._modifier_rects:
-        last_mod = state._modifier_rects[-1]
-        ex_x = last_mod[2] + last_mod[4] + toggle_gap * 2
-        ex_w = unit_px * 2.5
-        state._export_button_rect = (ex_x, toggle_y, ex_w, toggle_h)
-    else:
-        state._export_button_rect = None
-
-    # v0.9 Feature 6: Presets button (to the right of export button)
-    if state._export_button_rect is not None:
-        ex_x, ex_y, ex_w, ex_h = state._export_button_rect
-        pr_x = ex_x + ex_w + toggle_gap
-        pr_w = unit_px * 2.5
-        state._presets_btn_rect = (pr_x, toggle_y, pr_w, toggle_h)
-    else:
-        state._presets_btn_rect = None
-
-    # --- Feature 4: Filter buttons (above modifier toggles) ---
-    filter_y = toggle_y + toggle_h + unit_px * 0.3
-    filter_btn_h = unit_px * 0.7
+    # --- Toolbar row above keyboard (Filters + Export + Presets) ---
+    toolbar_y = start_y + len(KEYBOARD_ROWS) * unit_px + unit_px * 0.3
+    toolbar_h = unit_px * 0.7
+    btn_gap = unit_px * 0.3
     filter_btn_w = unit_px * 3.5
-    filter_gap = unit_px * 0.3
-    total_filter_w = 2 * filter_btn_w + filter_gap
-    filter_start_x = (region_width - total_filter_w) / 2
-    state._filter_editor_btn_rect = (filter_start_x, filter_y, filter_btn_w, filter_btn_h)
-    state._filter_mode_btn_rect = (filter_start_x + filter_btn_w + filter_gap, filter_y, filter_btn_w, filter_btn_h)
+    export_btn_w = unit_px * 2.5
+    presets_btn_w = unit_px * 2.5
+
+    total_toolbar_w = (2 * filter_btn_w + export_btn_w + presets_btn_w
+                       + 3 * btn_gap)
+    toolbar_x = (region_width - total_toolbar_w) / 2
+
+    x = toolbar_x
+    state._filter_editor_btn_rect = (x, toolbar_y, filter_btn_w, toolbar_h)
+    x += filter_btn_w + btn_gap
+    state._filter_mode_btn_rect = (x, toolbar_y, filter_btn_w, toolbar_h)
+    x += filter_btn_w + btn_gap
+    state._export_button_rect = (x, toolbar_y, export_btn_w, toolbar_h)
+    x += export_btn_w + btn_gap
+    state._presets_btn_rect = (x, toolbar_y, presets_btn_w, toolbar_h)
 
     # --- Feature 1: Close button (top-right of keyboard frame) ---
-    # Compute bounding box of all elements including filters
     all_max_x = max(kr.x + kr.w for kr in state._key_rects)
-    all_max_y = filter_y + filter_btn_h  # top of filter buttons
+    all_max_y = toolbar_y + toolbar_h  # top of toolbar
     pad = 15
     btn_size = unit_px * 0.6
     state._close_button_rect = (all_max_x + pad - btn_size, all_max_y + pad - btn_size, btn_size, btn_size)

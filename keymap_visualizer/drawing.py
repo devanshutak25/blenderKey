@@ -7,11 +7,13 @@ import gpu
 import blf
 import math
 import time
+import os
 from gpu_extras.batch import batch_for_shader
 
 from . import state
 from .constants import (
-    KEYBOARD_ROWS, _MODIFIER_EVENTS,
+    KEYBOARD_ROWS, _MODIFIER_EVENTS, MODIFIER_KEY_TO_DICT,
+    EDITOR_ICONS, MODE_ICONS,
     COL_BG, COL_KEY_DEFAULT, COL_KEY_HOVER, COL_KEY_SELECTED, COL_KEY_MODIFIER,
     COL_KEY_INACTIVE, COL_BORDER, COL_BORDER_HIGHLIGHT, COL_TEXT, COL_TEXT_DIM,
     COL_TOGGLE_ACTIVE, COL_TOGGLE_INACTIVE, COL_INFO_BG,
@@ -22,6 +24,26 @@ from .constants import (
     COL_KEY_BOUND, SPACE_TYPE_FILTERS, MODE_FILTERS,
     COL_SHORTCUT_SEARCH_TEXT, CATEGORY_COLORS,
 )
+
+# ---------------------------------------------------------------------------
+# Font loading: use bfont.ttf for better Unicode glyph support
+# ---------------------------------------------------------------------------
+_blender_font_id = 0
+
+
+def _ensure_font_loaded():
+    global _blender_font_id
+    if _blender_font_id != 0:
+        return _blender_font_id
+    bfont_dir = os.path.join(bpy.utils.resource_path('LOCAL'), "datafiles", "fonts")
+    bfont_path = os.path.join(bfont_dir, "bfont.ttf")
+    if not os.path.exists(bfont_path):
+        bfont_path = os.path.join(bfont_dir, "bmonofont-i18n.ttf")
+    if os.path.exists(bfont_path):
+        loaded = blf.load(bfont_path)
+        if loaded != -1:
+            _blender_font_id = loaded
+    return _blender_font_id
 from .keymap_data import (
     _get_bindings_for_key, _get_all_bindings_for_key, _compute_bound_keys,
     _compute_key_labels, _compute_key_categories,
@@ -414,7 +436,7 @@ def _draw_callback():
         shader_uniform = gpu.shader.from_builtin('UNIFORM_COLOR')
         shader_smooth = gpu.shader.from_builtin('SMOOTH_COLOR')
 
-        unit_px = min(rw / 22, rh / 13) * state._user_scale
+        unit_px = min(rw / 24, rh / 12) * state._user_scale
 
         # --- A. Background plate ---
         min_x = min(kr.x for kr in state._key_rects)
@@ -422,11 +444,7 @@ def _draw_callback():
         min_y = min(kr.y for kr in state._key_rects)
         max_y = max(kr.y + kr.h for kr in state._key_rects)
 
-        if state._modifier_rects:
-            mod_max_y = max(y + h for _, _, x, y, w, h in state._modifier_rects)
-            max_y = max(max_y, mod_max_y)
-
-        # Include filter buttons in bounding box
+        # Include filter buttons / toolbar in bounding box
         if state._filter_editor_btn_rect:
             fx, fy, fw, fh = state._filter_editor_btn_rect
             max_y = max(max_y, fy + fh)
@@ -444,7 +462,7 @@ def _draw_callback():
             cb_col = colors['button_hover'] if state._close_hovered else colors['button_normal']
             _draw_rect(shader_uniform, cbx, cby, cbw, cbh, cb_col)
             _draw_rect_border(shader_uniform, cbx, cby, cbw, cbh, colors['border'])
-            font_id = 0
+            font_id = _ensure_font_loaded()
             cb_font_size = max(10, int(cbh * 0.5))
             blf.size(font_id, cb_font_size)
             blf.color(font_id, *colors['text'])
@@ -497,6 +515,12 @@ def _draw_callback():
             shader_smooth.bind()
             sb.draw(shader_smooth)
 
+        # --- Modifier pulsing (moved before Section C for key coloring) ---
+        physical_active = any(state._physical_modifiers.values())
+        pulse_t = 0.0
+        if physical_active:
+            pulse_t = 0.5 + 0.5 * math.sin(now * 2 * math.pi * 2)  # 2Hz sine
+
         # --- C. Key rectangles ---
         verts = []
         key_colors = []
@@ -521,7 +545,17 @@ def _draw_callback():
                 else:
                     col = colors['key_hovered']
             elif kr.event_type in _MODIFIER_EVENTS:
-                col = colors['key_modifier']
+                dict_key = MODIFIER_KEY_TO_DICT.get(kr.event_type)
+                is_mod_active = state._get_effective_modifiers().get(dict_key, False)
+                if is_mod_active and physical_active and state._physical_modifiers.get(dict_key, False):
+                    base = colors['toggle_active']
+                    col = (min(1.0, base[0] + pulse_t * 0.15),
+                           min(1.0, base[1] + pulse_t * 0.15),
+                           min(1.0, base[2] + pulse_t * 0.15), base[3])
+                elif is_mod_active:
+                    col = colors['toggle_active']
+                else:
+                    col = colors['key_modifier']
             elif category_colors_enabled and kr.event_type in state._key_categories_cache:
                 cat = state._key_categories_cache[kr.event_type]
                 cat_key = _CAT_COLOR_KEYS.get(cat)
@@ -582,8 +616,24 @@ def _draw_callback():
             hl_batch.draw(shader_uniform)
             gpu.state.line_width_set(1.0)
 
+        # Highlight border for active modifier keys
+        for i, kr in enumerate(state._key_rects):
+            if kr.event_type in _MODIFIER_EVENTS:
+                dict_key = MODIFIER_KEY_TO_DICT.get(kr.event_type)
+                if state._get_effective_modifiers().get(dict_key, False):
+                    x, y, w, h = kr.x, kr.y, kr.w, kr.h
+                    hl_verts = [(x, y), (x + w, y), (x + w, y + h), (x, y + h)]
+                    hl_indices = [(0, 1), (1, 2), (2, 3), (3, 0)]
+                    hl_batch = batch_for_shader(shader_uniform, 'LINES',
+                                                {"pos": hl_verts},
+                                                indices=hl_indices)
+                    gpu.state.line_width_set(2.0)
+                    shader_uniform.uniform_float("color", colors['border_highlight'])
+                    hl_batch.draw(shader_uniform)
+                    gpu.state.line_width_set(1.0)
+
         # --- E. Key labels (v0.9: two-line — key label top-left, command label below) ---
-        font_id = 0
+        font_id = _ensure_font_loaded()
         font_size = max(10, int(unit_px * 0.3))
         cmd_font_size = max(8, int(unit_px * 0.18))
 
@@ -623,41 +673,6 @@ def _draw_callback():
                     ty = kr.y + (kr.h - th) / 2
                     blf.position(font_id, tx, ty, 0)
                     blf.draw(font_id, kr.label)
-
-        # --- F. Modifier toggle bar ---
-        # v0.9 Feature 2: Pulsing brightness when physical modifier held
-        physical_active = any(state._physical_modifiers.values())
-        pulse_t = 0.0
-        if physical_active:
-            pulse_t = 0.5 + 0.5 * math.sin(now * 2 * math.pi * 2)  # 2Hz sine
-
-        for label, dict_key, mx, my, mw, mh in state._modifier_rects:
-            is_active = state._get_effective_modifiers().get(dict_key, False)
-
-            if is_active and physical_active and state._physical_modifiers.get(dict_key, False):
-                # Pulse the toggle color when physical mod is held
-                base_col = colors['toggle_active']
-                col = (
-                    min(1.0, base_col[0] + pulse_t * 0.15),
-                    min(1.0, base_col[1] + pulse_t * 0.15),
-                    min(1.0, base_col[2] + pulse_t * 0.15),
-                    base_col[3],
-                )
-            elif is_active:
-                col = colors['toggle_active']
-            else:
-                col = colors['toggle_inactive']
-
-            _draw_rect(shader_uniform, mx, my, mw, mh, col)
-            border_col = colors['border_highlight'] if is_active else colors['border']
-            _draw_rect_border(shader_uniform, mx, my, mw, mh, border_col)
-
-            if unit_px >= 20:
-                blf.size(font_id, font_size)
-                blf.color(font_id, *colors['text'])
-                tw, th = blf.dimensions(font_id, label)
-                blf.position(font_id, mx + (mw - tw) / 2, my + (mh - th) / 2, 0)
-                blf.draw(font_id, label)
 
         # --- F2. Export button (Phase 6) ---
         if state._export_button_rect is not None:
@@ -722,6 +737,11 @@ def _draw_callback():
                     blf.size(font_id, font_size)
                     blf.color(font_id, *colors['text'])
                     flabel = _get_filter_label(filter_type)
+                    if filter_type == 'EDITOR':
+                        icon = EDITOR_ICONS.get(state._filter_space_type, "")
+                    else:
+                        icon = MODE_ICONS.get(state._filter_mode, "")
+                    flabel = f"{icon} {flabel}"
                     tw, th = blf.dimensions(font_id, flabel)
                     while tw > fbw - 10 and len(flabel) > 3:
                         flabel = flabel[:-4] + "..."
@@ -754,10 +774,13 @@ def _draw_callback():
                 if unit_px >= 20:
                     blf.size(font_id, font_size)
                     blf.color(font_id, *colors['text'])
+                    icons = EDITOR_ICONS if state._filter_dropdown_open == 'EDITOR' else MODE_ICONS
+                    icon = icons.get(dvalue, "")
                     prefix = "* " if dvalue == current_value else "  "
-                    tw, th = blf.dimensions(font_id, prefix + dlabel)
+                    display_text = f"{icon} {prefix}{dlabel}"
+                    tw, th = blf.dimensions(font_id, display_text)
                     blf.position(font_id, dx + 8, dy + (dh - th) / 2, 0)
-                    blf.draw(font_id, prefix + dlabel)
+                    blf.draw(font_id, display_text)
 
         # --- v0.9 Feature 6: Preset dropdown ---
         if state._preset_dropdown_open and state._preset_dropdown_rects:
@@ -821,9 +844,6 @@ def _draw_callback():
             sb_h = unit_px * 0.7
             sb_x = (rw - sb_w) / 2
             sb_y = max_y + pad + 5
-            if state._modifier_rects:
-                mod_max = max(y + h for _, _, x, y, w, h in state._modifier_rects)
-                sb_y = mod_max + 10
             if state._filter_editor_btn_rect:
                 fx, fy, fw, fh = state._filter_editor_btn_rect
                 sb_y = max(sb_y, fy + fh + 10)
@@ -892,9 +912,11 @@ def _draw_callback():
             if state._filter_space_type != 'ALL' or state._filter_mode != 'ALL':
                 filter_parts = []
                 if state._filter_space_type != 'ALL':
-                    filter_parts.append(_get_filter_label('EDITOR'))
+                    icon = EDITOR_ICONS.get(state._filter_space_type, "")
+                    filter_parts.append(f"{icon} {_get_filter_label('EDITOR')}")
                 if state._filter_mode != 'ALL':
-                    filter_parts.append(_get_filter_label('MODE'))
+                    icon = MODE_ICONS.get(state._filter_mode, "")
+                    filter_parts.append(f"{icon} {_get_filter_label('MODE')}")
                 header += f"  [{' / '.join(filter_parts)}]"
             blf.position(font_id, info_x + 10, info_y + info_h - info_font_size - 5, 0)
             blf.draw(font_id, header)
