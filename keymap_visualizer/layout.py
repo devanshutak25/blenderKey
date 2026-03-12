@@ -13,7 +13,8 @@ def _compute_keyboard_layout(region_width, region_height):
     state._batch_dirty = True
 
     # Unit size: fit ~20 units across with padding, cap at 50px
-    unit_px = min(region_width / 22, 50)
+    # Feature 2: Apply user scale
+    unit_px = min(region_width / 22, 50) * state._user_scale
     if unit_px < 8:
         return  # Don't update _cached_region_size so draw callback retries
 
@@ -94,3 +95,26 @@ def _compute_keyboard_layout(region_width, region_height):
         state._export_button_rect = (ex_x, toggle_y, ex_w, toggle_h)
     else:
         state._export_button_rect = None
+
+    # --- Feature 4: Filter buttons (above modifier toggles) ---
+    filter_y = toggle_y + toggle_h + unit_px * 0.3
+    filter_btn_h = unit_px * 0.7
+    filter_btn_w = unit_px * 3.5
+    filter_gap = unit_px * 0.3
+    total_filter_w = 2 * filter_btn_w + filter_gap
+    filter_start_x = (region_width - total_filter_w) / 2
+    state._filter_editor_btn_rect = (filter_start_x, filter_y, filter_btn_w, filter_btn_h)
+    state._filter_mode_btn_rect = (filter_start_x + filter_btn_w + filter_gap, filter_y, filter_btn_w, filter_btn_h)
+
+    # --- Feature 1: Close button (top-right of keyboard frame) ---
+    # Compute bounding box of all elements including filters
+    all_max_x = max(kr.x + kr.w for kr in state._key_rects)
+    all_max_y = filter_y + filter_btn_h  # top of filter buttons
+    pad = 15
+    btn_size = unit_px * 0.6
+    state._close_button_rect = (all_max_x + pad - btn_size, all_max_y + pad - btn_size, btn_size, btn_size)
+
+    # --- Feature 2: Resize handle (bottom-right of keyboard frame) ---
+    all_min_y = min(kr.y for kr in state._key_rects)
+    handle_size = max(12, unit_px * 0.4)
+    state._resize_handle_rect = (all_max_x + pad - handle_size, all_min_y - pad, handle_size, handle_size)

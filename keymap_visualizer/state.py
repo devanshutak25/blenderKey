@@ -61,6 +61,34 @@ _hover_transition = 0.0
 _hover_transition_target = -1
 _last_frame_time = 0.0
 
+# Feature 1: Close button
+_close_button_rect = None   # (x, y, w, h)
+_close_hovered = False
+_should_close = False        # signal from handler → modal
+
+# Feature 2: Resizable keyboard frame
+_user_scale = 1.0
+_resize_handle_rect = None   # (x, y, w, h)
+_resize_hovered = False
+_resize_dragging = False
+_resize_drag_start_x = 0
+_resize_drag_start_scale = 1.0
+
+# Feature 3: Bound-key highlighting
+_bound_keys_cache = set()    # set of event_type strings with active bindings
+_bound_keys_dirty = True
+
+# Feature 4: Editor/Mode filters
+_filter_space_type = 'ALL'
+_filter_mode = 'ALL'
+_filter_editor_btn_rect = None   # (x, y, w, h)
+_filter_mode_btn_rect = None     # (x, y, w, h)
+_filter_editor_hovered = False
+_filter_mode_hovered = False
+_filter_dropdown_open = None     # None, 'EDITOR', or 'MODE'
+_filter_dropdown_rects = []      # [(label, value, x, y, w, h), ...]
+_filter_dropdown_hovered = -1
+
 # Launch: deferred modal start (stored here because operator instances are
 # freed after execute() returns, so self._xxx is invalid in timer callbacks)
 _launch_window = None
@@ -69,6 +97,7 @@ _launch_retry_count = 0
 
 def _invalidate_cache():
     """Invalidate binding cache and mark batches dirty."""
-    global _bindings_key, _batch_dirty
+    global _bindings_key, _batch_dirty, _bound_keys_dirty
     _bindings_key = None
     _batch_dirty = True
+    _bound_keys_dirty = True

@@ -74,6 +74,14 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
         default=(0.15, 0.15, 0.18, 0.9),
         update=lambda self, ctx: state._invalidate_cache(),
     )
+    col_key_bound: FloatVectorProperty(
+        name="Key Bound",
+        subtype='COLOR',
+        size=4,
+        min=0.0, max=1.0,
+        default=(0.28, 0.30, 0.38, 1.0),
+        update=lambda self, ctx: state._invalidate_cache(),
+    )
 
     def draw(self, context):
         layout = self.layout
@@ -96,3 +104,5 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
         row = box.row()
         row.prop(self, "col_text")
         row.prop(self, "col_panel_bg")
+        row = box.row()
+        row.prop(self, "col_key_bound")

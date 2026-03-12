@@ -7,21 +7,63 @@ from . import state
 from .hit_testing import (
     _hit_test_key, _hit_test_modifier, _hit_test_export,
     _hit_test_conflict_buttons, _hit_test_gpu_menu,
+    _hit_test_close, _hit_test_resize,
+    _hit_test_filter_buttons, _hit_test_filter_dropdown,
 )
 from .keymap_data import (
     _get_bindings_for_key, _find_conflicts, _apply_rebind,
     _reset_kmi_to_default, _update_search_filter,
 )
 from .export import _do_export
-from .drawing import _build_gpu_menu
+from .drawing import _build_gpu_menu, _build_filter_dropdown
 from .constants import _CAPTURABLE_KEYS
+
+
+def _handle_resize_drag(context, event):
+    """Handle events during resize drag."""
+    if event.type == 'MOUSEMOVE':
+        dx = event.mouse_region_x - state._resize_drag_start_x
+        # Scale change proportional to horizontal delta
+        scale_delta = dx / 200.0
+        new_scale = state._resize_drag_start_scale + scale_delta
+        new_scale = max(0.5, min(3.0, new_scale))
+        if new_scale != state._user_scale:
+            state._user_scale = new_scale
+            state._cached_region_size = (0, 0)  # Force layout recompute
+            state._invalidate_cache()
+            if state._target_area is not None:
+                state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+        state._resize_dragging = False
+        return {'RUNNING_MODAL'}
+
+    if event.type == 'ESC' and event.value == 'PRESS':
+        state._user_scale = state._resize_drag_start_scale
+        state._resize_dragging = False
+        state._cached_region_size = (0, 0)
+        state._invalidate_cache()
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    return {'RUNNING_MODAL'}
 
 
 def _handle_idle(context, event):
     """Handle events in IDLE state. Returns Blender modal return set."""
+    # Feature 2: Resize dragging takes priority
+    if state._resize_dragging:
+        return _handle_resize_drag(context, event)
+
     if event.type == 'MOUSEMOVE':
-        new_hover = _hit_test_key(event.mouse_region_x, event.mouse_region_y)
-        new_export_hover = _hit_test_export(event.mouse_region_x, event.mouse_region_y)
+        mx, my = event.mouse_region_x, event.mouse_region_y
+        new_hover = _hit_test_key(mx, my)
+        new_export_hover = _hit_test_export(mx, my)
+        new_close_hover = _hit_test_close(mx, my)
+        new_resize_hover = _hit_test_resize(mx, my)
+        new_filter_btn = _hit_test_filter_buttons(mx, my)
 
         changed = False
         if new_hover != state._hovered_key_index:
@@ -31,6 +73,21 @@ def _handle_idle(context, event):
         if new_export_hover != state._export_hovered:
             state._export_hovered = new_export_hover
             changed = True
+        if new_close_hover != state._close_hovered:
+            state._close_hovered = new_close_hover
+            changed = True
+        if new_resize_hover != state._resize_hovered:
+            state._resize_hovered = new_resize_hover
+            changed = True
+        # Filter button hover
+        new_editor_hover = (new_filter_btn == 'EDITOR')
+        new_mode_hover = (new_filter_btn == 'MODE')
+        if new_editor_hover != state._filter_editor_hovered:
+            state._filter_editor_hovered = new_editor_hover
+            changed = True
+        if new_mode_hover != state._filter_mode_hovered:
+            state._filter_mode_hovered = new_mode_hover
+            changed = True
 
         if changed and state._target_area is not None:
             state._target_area.tag_redraw()
@@ -38,6 +95,30 @@ def _handle_idle(context, event):
 
     if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
         mx, my = event.mouse_region_x, event.mouse_region_y
+
+        # Feature 1: Check close button
+        if _hit_test_close(mx, my):
+            state._should_close = True
+            return {'RUNNING_MODAL'}
+
+        # Feature 2: Check resize handle
+        if _hit_test_resize(mx, my):
+            state._resize_dragging = True
+            state._resize_drag_start_x = mx
+            state._resize_drag_start_scale = state._user_scale
+            return {'RUNNING_MODAL'}
+
+        # Feature 4: Check filter buttons
+        filter_hit = _hit_test_filter_buttons(mx, my)
+        if filter_hit is not None:
+            btn_rect = state._filter_editor_btn_rect if filter_hit == 'EDITOR' else state._filter_mode_btn_rect
+            region_w, region_h = state._cached_region_size
+            _build_filter_dropdown(filter_hit, btn_rect, region_w, region_h)
+            state._filter_dropdown_open = filter_hit
+            state._modal_state = 'FILTER_DROPDOWN'
+            if state._target_area is not None:
+                state._target_area.tag_redraw()
+            return {'RUNNING_MODAL'}
 
         # Check export button
         if _hit_test_export(mx, my):
@@ -65,7 +146,7 @@ def _handle_idle(context, event):
                 state._target_area.tag_redraw()
         return {'RUNNING_MODAL'}
 
-    # Right-click: context menu
+    # Right-click: context menu (Feature 5: enhanced with all bindings)
     if event.type == 'RIGHTMOUSE' and event.value == 'PRESS':
         mx, my = event.mouse_region_x, event.mouse_region_y
         key_hit = _hit_test_key(mx, my)
@@ -73,17 +154,20 @@ def _handle_idle(context, event):
             kr = state._key_rects[key_hit]
             bindings = _get_bindings_for_key(kr.event_type, state._active_modifiers)
             if bindings:
-                km_name, op_id, mod_str, kmi, is_active = bindings[0]
                 state._menu_context.clear()
                 state._menu_context['target_key_index'] = key_hit
                 state._menu_context['target_event_type'] = kr.event_type
+                # Store all bindings for Feature 5
+                state._menu_context['all_bindings'] = bindings
+                # Keep first binding as default target for backward compat
+                km_name, op_id, mod_str, kmi, is_active = bindings[0]
                 state._menu_context['target_kmi'] = kmi
                 state._menu_context['target_km_name'] = km_name
                 state._menu_context['pending_action'] = None
 
                 # Get region dimensions for menu positioning
                 region_w, region_h = state._cached_region_size
-                _build_gpu_menu(mx, my, region_w, region_h)
+                _build_gpu_menu(mx, my, region_w, region_h, bindings=bindings)
                 state._modal_state = 'MENU_OPEN'
                 if state._target_area is not None:
                     state._target_area.tag_redraw()
@@ -124,11 +208,30 @@ def _handle_menu_open(context, event):
         menu_hit = _hit_test_gpu_menu(mx, my)
 
         if menu_hit >= 0:
-            label, action = state._gpu_menu_items[menu_hit][0], state._gpu_menu_items[menu_hit][1]
-            kmi = state._menu_context.get('target_kmi')
-            km_name = state._menu_context.get('target_km_name')
+            item = state._gpu_menu_items[menu_hit]
+            if len(item) >= 8:
+                label, action, _, _, _, _, binding_index, is_header = item
+            else:
+                label, action = item[0], item[1]
+                binding_index = 0
+                is_header = False
+
+            # Skip headers
+            if is_header:
+                return {'RUNNING_MODAL'}
+
+            # Feature 5: Look up kmi from the specific binding
+            all_bindings = state._menu_context.get('all_bindings', [])
+            if 0 <= binding_index < len(all_bindings):
+                km_name, op_id, mod_str, kmi, is_active = all_bindings[binding_index]
+            else:
+                kmi = state._menu_context.get('target_kmi')
+                km_name = state._menu_context.get('target_km_name')
 
             if action == 'REBIND' and kmi:
+                # Update target to the specific binding being rebound
+                state._menu_context['target_kmi'] = kmi
+                state._menu_context['target_km_name'] = km_name
                 state._modal_state = 'CAPTURE'
                 state._menu_context['pending_action'] = 'REBIND'
             elif action == 'UNBIND' and kmi:
@@ -298,6 +401,61 @@ def _handle_conflict(context, event):
         state._conflict_button_rects.clear()
         state._conflict_data['conflicts'] = []
         state._menu_context.clear()
+        state._batch_dirty = True
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    return {'RUNNING_MODAL'}
+
+
+def _handle_filter_dropdown(context, event):
+    """Handle events while a filter dropdown is open."""
+    if event.type == 'MOUSEMOVE':
+        new_hover = _hit_test_filter_dropdown(event.mouse_region_x, event.mouse_region_y)
+        if new_hover != state._filter_dropdown_hovered:
+            state._filter_dropdown_hovered = new_hover
+            if state._target_area is not None:
+                state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+        mx, my = event.mouse_region_x, event.mouse_region_y
+        dd_hit = _hit_test_filter_dropdown(mx, my)
+
+        if dd_hit >= 0:
+            label, value = state._filter_dropdown_rects[dd_hit][:2]
+            if state._filter_dropdown_open == 'EDITOR':
+                state._filter_space_type = value
+            else:
+                state._filter_mode = value
+            state._invalidate_cache()
+
+        # Close dropdown
+        state._filter_dropdown_open = None
+        state._filter_dropdown_rects = []
+        state._filter_dropdown_hovered = -1
+        state._modal_state = 'IDLE'
+        state._batch_dirty = True
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.type == 'ESC' and event.value == 'PRESS':
+        state._filter_dropdown_open = None
+        state._filter_dropdown_rects = []
+        state._filter_dropdown_hovered = -1
+        state._modal_state = 'IDLE'
+        state._batch_dirty = True
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.type == 'RIGHTMOUSE' and event.value == 'PRESS':
+        state._filter_dropdown_open = None
+        state._filter_dropdown_rects = []
+        state._filter_dropdown_hovered = -1
+        state._modal_state = 'IDLE'
         state._batch_dirty = True
         if state._target_area is not None:
             state._target_area.tag_redraw()

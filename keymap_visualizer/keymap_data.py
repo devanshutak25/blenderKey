@@ -7,10 +7,21 @@ import time
 from . import state
 
 
+def _km_passes_filter(km):
+    """Check if a keymap passes the current editor/mode filters."""
+    if state._filter_space_type != 'ALL':
+        if km.space_type != state._filter_space_type and km.space_type != 'EMPTY':
+            return False
+    if state._filter_mode != 'ALL':
+        if state._filter_mode not in km.name:
+            return False
+    return True
+
+
 def _get_bindings_for_key(event_type, modifiers):
     """Return list of (keymap_name, operator_idname, modifier_string, kmi, is_active)."""
     mod_tuple = (modifiers['ctrl'], modifiers['shift'], modifiers['alt'], modifiers['oskey'])
-    cache_key = (event_type, mod_tuple)
+    cache_key = (event_type, mod_tuple, state._filter_space_type, state._filter_mode)
     if state._bindings_key == cache_key:
         return state._cached_bindings
 
@@ -25,6 +36,8 @@ def _get_bindings_for_key(event_type, modifiers):
     any_mod_active = any(mod_tuple)
 
     for km in kc.keymaps:
+        if not _km_passes_filter(km):
+            continue
         for kmi in km.keymap_items:
             if kmi.type != event_type:
                 continue
@@ -118,6 +131,25 @@ def _reset_kmi_to_default(kmi, km_name):
     return False
 
 
+def _compute_bound_keys():
+    """Compute the set of event_type strings that have active bindings (respects filters)."""
+    if not state._bound_keys_dirty:
+        return
+    state._bound_keys_cache = set()
+    wm = bpy.context.window_manager
+    kc = wm.keyconfigs.user
+    if kc is None:
+        state._bound_keys_dirty = False
+        return
+    for km in kc.keymaps:
+        if not _km_passes_filter(km):
+            continue
+        for kmi in km.keymap_items:
+            if kmi.active:
+                state._bound_keys_cache.add(kmi.type)
+    state._bound_keys_dirty = False
+
+
 def _update_search_filter():
     """Update state._search_matching_keys based on state._search_text."""
     state._search_matching_keys = set()
@@ -134,6 +166,8 @@ def _update_search_filter():
         return
 
     for km in kc.keymaps:
+        if not _km_passes_filter(km):
+            continue
         for kmi in km.keymap_items:
             if not kmi.active:
                 continue

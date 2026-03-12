@@ -6,7 +6,7 @@ Requires Blender 4.2+ (tested against 5.0 API).
 bl_info = {
     "name": "Keymap Visualizer",
     "author": "blenderKey",
-    "version": (0, 7, 0),
+    "version": (0, 8, 0),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Header",
     "description": "Visual keyboard-based keymap editor",

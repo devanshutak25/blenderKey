@@ -211,3 +211,40 @@ COL_SEARCH_BORDER = (0.4, 0.5, 0.7, 1.0)
 COL_GPU_MENU_BG = (0.15, 0.15, 0.18, 0.98)
 COL_GPU_MENU_HOVER = (0.3, 0.4, 0.55, 1.0)
 COL_GPU_MENU_BORDER = (0.4, 0.4, 0.45, 1.0)
+
+# Feature 3: Bound-key highlighting
+COL_KEY_BOUND = (0.28, 0.30, 0.38, 1.0)
+
+# ---------------------------------------------------------------------------
+# Feature 4: Editor/Mode filter lists
+# ---------------------------------------------------------------------------
+SPACE_TYPE_FILTERS = [
+    ('ALL', "All Editors"),
+    ('EMPTY', "Global"),
+    ('VIEW_3D', "3D Viewport"),
+    ('IMAGE_EDITOR', "Image/UV"),
+    ('NODE_EDITOR', "Node Editor"),
+    ('TEXT_EDITOR', "Text Editor"),
+    ('SEQUENCE_EDITOR', "Sequencer"),
+    ('CLIP_EDITOR', "Clip Editor"),
+    ('DOPESHEET_EDITOR', "Dopesheet"),
+    ('GRAPH_EDITOR', "Graph Editor"),
+    ('NLA_EDITOR', "NLA"),
+    ('PROPERTIES', "Properties"),
+    ('OUTLINER', "Outliner"),
+    ('CONSOLE', "Console"),
+    ('SPREADSHEET', "Spreadsheet"),
+]
+
+MODE_FILTERS = [
+    ('ALL', "All Modes"),
+    ('Object Mode', "Object"),
+    ('Mesh', "Edit Mesh"),
+    ('Sculpt', "Sculpt"),
+    ('Pose', "Pose"),
+    ('Weight Paint', "Weight Paint"),
+    ('Vertex Paint', "Vertex Paint"),
+    ('Texture Paint', "Texture Paint"),
+    ('Grease Pencil', "Grease Pencil"),
+    ('Curves', "Curves"),
+]

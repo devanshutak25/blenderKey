@@ -8,7 +8,7 @@ from .layout import _compute_keyboard_layout
 from .drawing import _draw_callback
 from .handlers import (
     _handle_idle, _handle_menu_open, _handle_capture,
-    _handle_conflict, _handle_search,
+    _handle_conflict, _handle_search, _handle_filter_dropdown,
 )
 
 
@@ -52,6 +52,16 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
             self._cleanup(context)
             return {'CANCELLED'}
 
+        # Feature 1: Close button signal
+        if state._should_close:
+            self._cleanup(context)
+            try:
+                with context.temp_override(window=self._target_window):
+                    bpy.ops.wm.window_close()
+            except Exception:
+                pass
+            return {'CANCELLED'}
+
         # Force redraws while layout hasn't been computed yet.
         # This is critical: _handle_idle consumes MOUSEMOVE with RUNNING_MODAL,
         # so the tag_redraw before PASS_THROUGH would never fire during normal
@@ -79,13 +89,15 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
             if result is not None:
                 return result
 
-        # State machine dispatch (Phase 5)
+        # State machine dispatch (Phase 5 + Feature 4)
         if state._modal_state == 'MENU_OPEN':
             return _handle_menu_open(context, event)
         elif state._modal_state == 'CAPTURE':
             return _handle_capture(context, event)
         elif state._modal_state == 'CONFLICT':
             return _handle_conflict(context, event)
+        elif state._modal_state == 'FILTER_DROPDOWN':
+            return _handle_filter_dropdown(context, event)
 
         # IDLE state
         result = _handle_idle(context, event)
@@ -140,6 +152,28 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
         state._hover_transition_target = -1
         state._last_frame_time = 0.0
         state._launch_window = None
+        # Feature 1: Close button cleanup
+        state._close_button_rect = None
+        state._close_hovered = False
+        state._should_close = False
+        # Feature 2: Resize cleanup
+        state._user_scale = 1.0
+        state._resize_handle_rect = None
+        state._resize_hovered = False
+        state._resize_dragging = False
+        # Feature 3: Bound keys cleanup
+        state._bound_keys_cache = set()
+        state._bound_keys_dirty = True
+        # Feature 4: Filter cleanup
+        state._filter_space_type = 'ALL'
+        state._filter_mode = 'ALL'
+        state._filter_editor_btn_rect = None
+        state._filter_mode_btn_rect = None
+        state._filter_editor_hovered = False
+        state._filter_mode_hovered = False
+        state._filter_dropdown_open = None
+        state._filter_dropdown_rects = []
+        state._filter_dropdown_hovered = -1
         state._set_running(False)
 
         # Redraw any remaining text-editor areas to clear stale overlay

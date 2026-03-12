@@ -11,7 +11,8 @@
       "WebFetch(domain:superhivemarket.com)",
       "WebFetch(domain:devtalk.blender.org)",
       "WebFetch(domain:github.com)",
-      "WebFetch(domain:spencer-magnusson.beehiiv.com)"
+      "WebFetch(domain:spencer-magnusson.beehiiv.com)",
+      "Bash(cd \"G:/Personal/blenderKey\" && python -m py_compile keymap_visualizer/state.py && python -m py_compile keymap_visualizer/constants.py && python -m py_compile keymap_visualizer/preferences.py && python -m py_compile keymap_visualizer/layout.py && python -m py_compile keymap_visualizer/keymap_data.py && python -m py_compile keymap_visualizer/hit_testing.py && echo \"All files compile OK\")"
     ]
   }
 }
