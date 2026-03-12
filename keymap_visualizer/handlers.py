@@ -1,0 +1,350 @@
+"""
+Keymap Visualizer – State machine event handlers
+"""
+
+import time
+from . import state
+from .hit_testing import (
+    _hit_test_key, _hit_test_modifier, _hit_test_export,
+    _hit_test_conflict_buttons, _hit_test_gpu_menu,
+)
+from .keymap_data import (
+    _get_bindings_for_key, _find_conflicts, _apply_rebind,
+    _reset_kmi_to_default, _update_search_filter,
+)
+from .export import _do_export
+from .drawing import _build_gpu_menu
+from .constants import _CAPTURABLE_KEYS
+
+
+def _handle_idle(context, event):
+    """Handle events in IDLE state. Returns Blender modal return set."""
+    if event.type == 'MOUSEMOVE':
+        new_hover = _hit_test_key(event.mouse_region_x, event.mouse_region_y)
+        new_export_hover = _hit_test_export(event.mouse_region_x, event.mouse_region_y)
+
+        changed = False
+        if new_hover != state._hovered_key_index:
+            state._hovered_key_index = new_hover
+            state._batch_dirty = True
+            changed = True
+        if new_export_hover != state._export_hovered:
+            state._export_hovered = new_export_hover
+            changed = True
+
+        if changed and state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+        mx, my = event.mouse_region_x, event.mouse_region_y
+
+        # Check export button
+        if _hit_test_export(mx, my):
+            success, msg = _do_export()
+            print(f"[Keymap Visualizer] {msg}")
+            if state._target_area is not None:
+                state._target_area.tag_redraw()
+            return {'RUNNING_MODAL'}
+
+        # Check modifier toggles
+        mod_hit = _hit_test_modifier(mx, my)
+        if mod_hit is not None:
+            state._active_modifiers[mod_hit] = not state._active_modifiers[mod_hit]
+            state._invalidate_cache()
+            if state._target_area is not None:
+                state._target_area.tag_redraw()
+            return {'RUNNING_MODAL'}
+
+        # Check key hit
+        key_hit = _hit_test_key(mx, my)
+        if key_hit != state._selected_key_index:
+            state._selected_key_index = key_hit
+            state._batch_dirty = True
+            if state._target_area is not None:
+                state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    # Right-click: context menu
+    if event.type == 'RIGHTMOUSE' and event.value == 'PRESS':
+        mx, my = event.mouse_region_x, event.mouse_region_y
+        key_hit = _hit_test_key(mx, my)
+        if key_hit >= 0:
+            kr = state._key_rects[key_hit]
+            bindings = _get_bindings_for_key(kr.event_type, state._active_modifiers)
+            if bindings:
+                km_name, op_id, mod_str, kmi, is_active = bindings[0]
+                state._menu_context.clear()
+                state._menu_context['target_key_index'] = key_hit
+                state._menu_context['target_event_type'] = kr.event_type
+                state._menu_context['target_kmi'] = kmi
+                state._menu_context['target_km_name'] = km_name
+                state._menu_context['pending_action'] = None
+
+                # Get region dimensions for menu positioning
+                region_w, region_h = state._cached_region_size
+                _build_gpu_menu(mx, my, region_w, region_h)
+                state._modal_state = 'MENU_OPEN'
+                if state._target_area is not None:
+                    state._target_area.tag_redraw()
+            return {'RUNNING_MODAL'}
+
+    # Search activation: / key or Ctrl+F
+    if event.type == 'SLASH' and event.value == 'PRESS' and not event.ctrl:
+        state._search_active = True
+        state._search_text = ''
+        _update_search_filter()
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.type == 'F' and event.value == 'PRESS' and event.ctrl:
+        state._search_active = True
+        state._search_text = ''
+        _update_search_filter()
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    return None  # Not handled
+
+
+def _handle_menu_open(context, event):
+    """Handle events while GPU context menu is open."""
+    if event.type == 'MOUSEMOVE':
+        new_hover = _hit_test_gpu_menu(event.mouse_region_x, event.mouse_region_y)
+        if new_hover != state._gpu_menu_hovered:
+            state._gpu_menu_hovered = new_hover
+            if state._target_area is not None:
+                state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+        mx, my = event.mouse_region_x, event.mouse_region_y
+        menu_hit = _hit_test_gpu_menu(mx, my)
+
+        if menu_hit >= 0:
+            label, action = state._gpu_menu_items[menu_hit][0], state._gpu_menu_items[menu_hit][1]
+            kmi = state._menu_context.get('target_kmi')
+            km_name = state._menu_context.get('target_km_name')
+
+            if action == 'REBIND' and kmi:
+                state._modal_state = 'CAPTURE'
+                state._menu_context['pending_action'] = 'REBIND'
+            elif action == 'UNBIND' and kmi:
+                kmi.active = False
+                state._invalidate_cache()
+                state._modal_state = 'IDLE'
+            elif action == 'RESET' and kmi and km_name:
+                _reset_kmi_to_default(kmi, km_name)
+                state._modal_state = 'IDLE'
+            elif action == 'TOGGLE' and kmi:
+                kmi.active = not kmi.active
+                state._invalidate_cache()
+                state._modal_state = 'IDLE'
+            else:
+                state._modal_state = 'IDLE'
+        else:
+            # Clicked outside menu — dismiss
+            state._modal_state = 'IDLE'
+
+        state._gpu_menu_items.clear()
+        state._gpu_menu_hovered = -1
+        state._batch_dirty = True
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.type == 'ESC' and event.value == 'PRESS':
+        state._modal_state = 'IDLE'
+        state._gpu_menu_items.clear()
+        state._gpu_menu_hovered = -1
+        state._batch_dirty = True
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.type == 'RIGHTMOUSE' and event.value == 'PRESS':
+        # Dismiss on right-click too
+        state._modal_state = 'IDLE'
+        state._gpu_menu_items.clear()
+        state._gpu_menu_hovered = -1
+        state._batch_dirty = True
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    return {'RUNNING_MODAL'}
+
+
+def _handle_capture(context, event):
+    """Handle events in CAPTURE state (waiting for key press)."""
+    if event.value != 'PRESS':
+        return {'RUNNING_MODAL'}
+
+    if event.type == 'ESC':
+        state._modal_state = 'IDLE'
+        state._menu_context.clear()
+        state._batch_dirty = True
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.type in _CAPTURABLE_KEYS:
+        new_type = event.type
+        new_ctrl = event.ctrl
+        new_shift = event.shift
+        new_alt = event.alt
+        new_oskey = event.oskey
+
+        kmi = state._menu_context.get('target_kmi')
+        km_name = state._menu_context.get('target_km_name')
+        if kmi is None:
+            state._modal_state = 'IDLE'
+            return {'RUNNING_MODAL'}
+
+        # Check for conflicts
+        conflicts = _find_conflicts(new_type, new_ctrl, new_shift, new_alt, new_oskey,
+                                    exclude_kmi=kmi)
+        if not conflicts:
+            # No conflicts — apply directly
+            _apply_rebind(kmi, new_type, new_ctrl, new_shift, new_alt, new_oskey)
+            state._modal_state = 'IDLE'
+            state._menu_context.clear()
+        else:
+            # Conflicts found — enter CONFLICT state
+            state._conflict_data['new_type'] = new_type
+            state._conflict_data['new_ctrl'] = new_ctrl
+            state._conflict_data['new_shift'] = new_shift
+            state._conflict_data['new_alt'] = new_alt
+            state._conflict_data['new_oskey'] = new_oskey
+            state._conflict_data['source_kmi'] = kmi
+            state._conflict_data['source_km_name'] = km_name
+            state._conflict_data['conflicts'] = conflicts
+            state._modal_state = 'CONFLICT'
+
+        state._batch_dirty = True
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    # Ignore non-capturable keys silently
+    return {'RUNNING_MODAL'}
+
+
+def _handle_conflict(context, event):
+    """Handle events in CONFLICT state."""
+    if event.type == 'MOUSEMOVE':
+        new_hover = _hit_test_conflict_buttons(event.mouse_region_x, event.mouse_region_y)
+        if new_hover != state._conflict_hovered_button:
+            state._conflict_hovered_button = new_hover
+            if state._target_area is not None:
+                state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+        mx, my = event.mouse_region_x, event.mouse_region_y
+        btn_hit = _hit_test_conflict_buttons(mx, my)
+
+        if btn_hit >= 0:
+            action = state._conflict_button_rects[btn_hit][1]
+            src_kmi = state._conflict_data.get('source_kmi')
+            new_type = state._conflict_data.get('new_type')
+            new_ctrl = state._conflict_data.get('new_ctrl', False)
+            new_shift = state._conflict_data.get('new_shift', False)
+            new_alt = state._conflict_data.get('new_alt', False)
+            new_oskey = state._conflict_data.get('new_oskey', False)
+            conflicts = state._conflict_data.get('conflicts', [])
+
+            if action == 'SWAP' and src_kmi:
+                # Save source's current binding
+                old_type = src_kmi.type
+                old_ctrl = src_kmi.ctrl
+                old_shift = src_kmi.shift
+                old_alt = src_kmi.alt
+                old_oskey = src_kmi.oskey
+
+                # Apply new binding to source
+                _apply_rebind(src_kmi, new_type, new_ctrl, new_shift, new_alt, new_oskey)
+
+                # Set conflicting KMIs to old binding
+                for ckm_name, ckmi in conflicts:
+                    _apply_rebind(ckmi, old_type, old_ctrl, old_shift, old_alt, old_oskey)
+
+            elif action == 'OVERRIDE' and src_kmi:
+                # Deactivate conflicting KMIs
+                for ckm_name, ckmi in conflicts:
+                    ckmi.active = False
+
+                # Apply new binding to source
+                _apply_rebind(src_kmi, new_type, new_ctrl, new_shift, new_alt, new_oskey)
+
+            # CANCEL or fallthrough: just dismiss
+
+        state._modal_state = 'IDLE'
+        state._conflict_hovered_button = -1
+        state._conflict_button_rects.clear()
+        state._conflict_data['conflicts'] = []
+        state._menu_context.clear()
+        state._invalidate_cache()
+        state._batch_dirty = True
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.type == 'ESC' and event.value == 'PRESS':
+        state._modal_state = 'IDLE'
+        state._conflict_hovered_button = -1
+        state._conflict_button_rects.clear()
+        state._conflict_data['conflicts'] = []
+        state._menu_context.clear()
+        state._batch_dirty = True
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    return {'RUNNING_MODAL'}
+
+
+def _handle_search(context, event):
+    """Handle keyboard input during search mode. Returns modal return set or None."""
+    if not state._search_active:
+        return None
+
+    if event.type == 'ESC' and event.value == 'PRESS':
+        state._search_active = False
+        state._search_text = ''
+        _update_search_filter()
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.type == 'RET' and event.value == 'PRESS':
+        state._search_active = False
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.type == 'BACK_SPACE' and event.value == 'PRESS':
+        if state._search_text:
+            state._search_text = state._search_text[:-1]
+            now = time.monotonic()
+            if now - state._search_last_update > 0.15:
+                _update_search_filter()
+                state._search_last_update = now
+            if state._target_area is not None:
+                state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    # Printable character input via event.unicode
+    if event.value == 'PRESS' and event.unicode and event.unicode.isprintable():
+        state._search_text += event.unicode
+        now = time.monotonic()
+        if now - state._search_last_update > 0.15:
+            _update_search_filter()
+            state._search_last_update = now
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    return None  # Not handled by search

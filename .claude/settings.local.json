@@ -2,7 +2,16 @@
   "permissions": {
     "allow": [
       "Bash(ls -la \"C:\\\\Users\\\\Devanshu\\\\.claude\\\\projects\\\\G--Personal-blenderKey\\\\memory\\\\\" 2>/dev/null || echo \"Memory directory not found\")",
-      "Bash(python -c \"import py_compile; py_compile.compile\\('G:/Personal/blenderKey/keymap_visualizer/__init__.py', doraise=True\\)\" 2>&1)"
+      "Bash(python -c \"import py_compile; py_compile.compile\\('G:/Personal/blenderKey/keymap_visualizer/__init__.py', doraise=True\\)\" 2>&1)",
+      "Bash(cd \"G:/Personal/blenderKey\" && python -c \"\nimport py_compile, sys\nfiles = [\n    'keymap_visualizer/__init__.py',\n    'keymap_visualizer/constants.py',\n    'keymap_visualizer/state.py',\n    'keymap_visualizer/layout.py',\n    'keymap_visualizer/hit_testing.py',\n    'keymap_visualizer/keymap_data.py',\n    'keymap_visualizer/export.py',\n    'keymap_visualizer/drawing.py',\n    'keymap_visualizer/handlers.py',\n    'keymap_visualizer/operators.py',\n    'keymap_visualizer/preferences.py',\n]\nok = True\nfor f in files:\n    try:\n        py_compile.compile\\(f, doraise=True\\)\n        print\\(f'  OK: {f}'\\)\n    except py_compile.PyCompileError as e:\n        print\\(f'FAIL: {f} -- {e}'\\)\n        ok = False\nif ok:\n    print\\('\\\\nAll files passed syntax check.'\\)\nelse:\n    print\\('\\\\nSome files FAILED.'\\)\n    sys.exit\\(1\\)\n\")",
+      "WebSearch",
+      "WebFetch(domain:docs.blender.org)",
+      "WebFetch(domain:developer.blender.org)",
+      "WebFetch(domain:projects.blender.org)",
+      "WebFetch(domain:superhivemarket.com)",
+      "WebFetch(domain:devtalk.blender.org)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:spencer-magnusson.beehiiv.com)"
     ]
   }
 }
