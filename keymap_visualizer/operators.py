@@ -147,6 +147,8 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
         state._active_modifiers = {'ctrl': False, 'shift': False, 'alt': False, 'oskey': False}
         state._cached_bindings = []
         state._bindings_key = None
+        state._cached_all_bindings = ([], 0)
+        state._all_bindings_key = None
         state._modal_state = 'IDLE'
         state._menu_context.clear()
         state._conflict_data['conflicts'] = []

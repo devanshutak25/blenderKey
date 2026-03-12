@@ -28,6 +28,8 @@ _active_modifiers = {'ctrl': False, 'shift': False, 'alt': False, 'oskey': False
 _modifier_rects = []               # list of (label, dict_key, x, y, w, h)
 _cached_bindings = []              # cached binding results
 _bindings_key = None               # (event_type, mod_tuple) used to cache
+_cached_all_bindings = ([], 0)     # cached all-bindings results for info panel
+_all_bindings_key = None           # cache key for all-bindings
 
 # Phase 5: State machine
 _modal_state = 'IDLE'  # IDLE, MENU_OPEN, CAPTURE, CONFLICT
@@ -129,8 +131,9 @@ _launch_retry_count = 0
 
 def _invalidate_cache():
     """Invalidate binding cache and mark batches dirty."""
-    global _bindings_key, _batch_dirty, _bound_keys_dirty, _key_labels_dirty, _key_categories_dirty
+    global _bindings_key, _all_bindings_key, _batch_dirty, _bound_keys_dirty, _key_labels_dirty, _key_categories_dirty
     _bindings_key = None
+    _all_bindings_key = None
     _batch_dirty = True
     _bound_keys_dirty = True
     _key_labels_dirty = True

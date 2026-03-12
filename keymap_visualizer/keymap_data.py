@@ -36,24 +36,15 @@ def _get_bindings_for_key(event_type, modifiers):
         state._bindings_key = cache_key
         return results
 
-    any_mod_active = any(mod_tuple)
-
     for km in kc.keymaps:
         if not _km_passes_filter(km):
             continue
         for kmi in km.keymap_items:
             if kmi.type != event_type:
                 continue
-            # Filter by modifiers if any toggle is active
-            if any_mod_active:
-                if kmi.ctrl != effective['ctrl']:
-                    continue
-                if kmi.shift != effective['shift']:
-                    continue
-                if kmi.alt != effective['alt']:
-                    continue
-                if kmi.oskey != effective['oskey']:
-                    continue
+            if (kmi.ctrl != effective['ctrl'] or kmi.shift != effective['shift'] or
+                    kmi.alt != effective['alt'] or kmi.oskey != effective['oskey']):
+                continue
 
             # Build modifier string
             mod_parts = []
@@ -76,6 +67,68 @@ def _get_bindings_for_key(event_type, modifiers):
     state._cached_bindings = results
     state._bindings_key = cache_key
     return results
+
+
+def _get_all_bindings_for_key(event_type):
+    """Return ALL bindings for a key (no modifier filtering), sorted with matching ones first.
+
+    Returns (results_list, n_matching) where n_matching is the count of
+    bindings that match the current effective modifiers.
+    """
+    effective = state._get_effective_modifiers()
+    mod_tuple = (effective['ctrl'], effective['shift'], effective['alt'], effective['oskey'])
+    cache_key = (event_type, mod_tuple, state._filter_space_type, state._filter_mode,
+                 state._modifier_source)
+    if state._all_bindings_key == cache_key:
+        return state._cached_all_bindings
+
+    matching = []
+    non_matching = []
+    wm = bpy.context.window_manager
+    kc = wm.keyconfigs.user
+    if kc is None:
+        result = ([], 0)
+        state._cached_all_bindings = result
+        state._all_bindings_key = cache_key
+        return result
+
+    for km in kc.keymaps:
+        if not _km_passes_filter(km):
+            continue
+        for kmi in km.keymap_items:
+            if kmi.type != event_type:
+                continue
+
+            # Build modifier string
+            mod_parts = []
+            if kmi.ctrl:
+                mod_parts.append("Ctrl")
+            if kmi.shift:
+                mod_parts.append("Shift")
+            if kmi.alt:
+                mod_parts.append("Alt")
+            if kmi.oskey:
+                mod_parts.append("OS")
+            mod_str = "+".join(mod_parts) if mod_parts else ""
+
+            entry = (km.name, kmi.idname, mod_str, kmi, kmi.active)
+            if (kmi.ctrl == effective['ctrl'] and kmi.shift == effective['shift'] and
+                    kmi.alt == effective['alt'] and kmi.oskey == effective['oskey']):
+                matching.append(entry)
+            else:
+                non_matching.append(entry)
+
+            if len(matching) + len(non_matching) >= 40:
+                break
+        if len(matching) + len(non_matching) >= 40:
+            break
+
+    results = matching + non_matching
+    n_matching = len(matching)
+    result = (results, n_matching)
+    state._cached_all_bindings = result
+    state._all_bindings_key = cache_key
+    return result
 
 
 def _find_conflicts(event_type, ctrl, shift, alt, oskey, exclude_kmi=None):
@@ -145,16 +198,14 @@ def _compute_bound_keys():
         state._bound_keys_dirty = False
         return
     effective = state._get_effective_modifiers()
-    any_mod_active = any(effective.values())
     for km in kc.keymaps:
         if not _km_passes_filter(km):
             continue
         for kmi in km.keymap_items:
             if kmi.active:
-                if any_mod_active:
-                    if (kmi.ctrl != effective['ctrl'] or kmi.shift != effective['shift'] or
-                            kmi.alt != effective['alt'] or kmi.oskey != effective['oskey']):
-                        continue
+                if (kmi.ctrl != effective['ctrl'] or kmi.shift != effective['shift'] or
+                        kmi.alt != effective['alt'] or kmi.oskey != effective['oskey']):
+                    continue
                 state._bound_keys_cache.add(kmi.type)
     state._bound_keys_dirty = False
 
@@ -214,7 +265,6 @@ def _compute_key_labels():
         return
 
     effective = state._get_effective_modifiers()
-    any_mod_active = any(effective.values())
 
     for km in kc.keymaps:
         if not _km_passes_filter(km):
@@ -222,10 +272,9 @@ def _compute_key_labels():
         for kmi in km.keymap_items:
             if not kmi.active:
                 continue
-            if any_mod_active:
-                if (kmi.ctrl != effective['ctrl'] or kmi.shift != effective['shift'] or
-                        kmi.alt != effective['alt'] or kmi.oskey != effective['oskey']):
-                    continue
+            if (kmi.ctrl != effective['ctrl'] or kmi.shift != effective['shift'] or
+                    kmi.alt != effective['alt'] or kmi.oskey != effective['oskey']):
+                continue
             # Only store first (highest priority) binding per key
             if kmi.type not in state._key_labels_cache:
                 state._key_labels_cache[kmi.type] = _get_operator_abbreviation(kmi.idname)
@@ -259,7 +308,6 @@ def _compute_key_categories():
         return
 
     effective = state._get_effective_modifiers()
-    any_mod_active = any(effective.values())
 
     for km in kc.keymaps:
         if not _km_passes_filter(km):
@@ -267,10 +315,9 @@ def _compute_key_categories():
         for kmi in km.keymap_items:
             if not kmi.active:
                 continue
-            if any_mod_active:
-                if (kmi.ctrl != effective['ctrl'] or kmi.shift != effective['shift'] or
-                        kmi.alt != effective['alt'] or kmi.oskey != effective['oskey']):
-                    continue
+            if (kmi.ctrl != effective['ctrl'] or kmi.shift != effective['shift'] or
+                    kmi.alt != effective['alt'] or kmi.oskey != effective['oskey']):
+                continue
             if kmi.type not in state._key_categories_cache:
                 cat = _get_operator_category(kmi.idname)
                 if cat:

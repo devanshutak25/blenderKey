@@ -12,9 +12,14 @@ def _compute_keyboard_layout(region_width, region_height):
     state._modifier_rects = []
     state._batch_dirty = True
 
-    # Unit size: fit ~20 units across with padding, cap at 50px
+    # Unit size: fit keyboard to fill the window in both dimensions.
+    # Horizontal: ~22 units total (keyboard + nav cluster + margins)
+    # Vertical: ~13 units (info panel 3 + gap 0.5 + keys 6 + gap 0.3 + toggles 0.7
+    #            + gap 0.3 + filters 0.7 + padding ~1.5)
     # Feature 2: Apply user scale
-    unit_px = min(region_width / 22, 50) * state._user_scale
+    unit_from_w = region_width / 22
+    unit_from_h = region_height / 13
+    unit_px = min(unit_from_w, unit_from_h) * state._user_scale
     if unit_px < 8:
         return  # Don't update _cached_region_size so draw callback retries
 
