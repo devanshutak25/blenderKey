@@ -3,7 +3,10 @@ Keymap Visualizer – Keyboard layout computation
 """
 
 from . import state
-from .constants import KeyRect, KEYBOARD_ROWS, NAV_CLUSTER_ROWS, NAV_ROW_ALIGNMENT
+from .constants import (
+    KeyRect, KEYBOARD_ROWS, NAV_CLUSTER_ROWS, NAV_ROW_ALIGNMENT,
+    NUMPAD_ROWS, NUMPAD_ROW_ALIGNMENT,
+)
 
 
 def _compute_keyboard_layout(region_width, region_height):
@@ -17,7 +20,7 @@ def _compute_keyboard_layout(region_width, region_height):
     # Vertical: ~13 units (info panel 3 + gap 0.5 + keys 6 + gap 0.3 + toggles 0.7
     #            + gap 0.3 + filters 0.7 + padding ~1.5)
     # Feature 2: Apply user scale
-    unit_from_w = region_width / 22
+    unit_from_w = region_width / 27
     unit_from_h = region_height / 13
     unit_px = min(unit_from_w, unit_from_h) * state._user_scale
     if unit_px < 8:
@@ -39,7 +42,9 @@ def _compute_keyboard_layout(region_width, region_height):
 
     nav_gap = 1.0  # gap between main block and nav cluster in units
     nav_width = 3.0  # nav cluster is 3 keys wide max
-    total_width_units = main_width + nav_gap + nav_width
+    numpad_gap = 1.0
+    numpad_width = 4.0
+    total_width_units = main_width + nav_gap + nav_width + numpad_gap + numpad_width
 
     # Center the whole keyboard
     total_width_px = total_width_units * unit_px
@@ -71,6 +76,24 @@ def _compute_keyboard_layout(region_width, region_height):
         y = start_y + main_row_idx * unit_px
         x = nav_start_x
         for item in nav_row:
+            if isinstance(item, (int, float)):
+                x += item * unit_px
+            else:
+                label, event_type, width_u = item
+                w = width_u * unit_px - key_gap
+                h = unit_px - key_gap
+                state._key_rects.append(KeyRect(label, event_type, x, y, w, h))
+                x += width_u * unit_px
+
+    # Build numpad key rects
+    numpad_start_x = nav_start_x + nav_width * unit_px + numpad_gap * unit_px
+    for np_row_idx, np_row in enumerate(NUMPAD_ROWS):
+        if np_row_idx >= len(NUMPAD_ROW_ALIGNMENT):
+            break
+        main_row_idx = NUMPAD_ROW_ALIGNMENT[np_row_idx]
+        y = start_y + main_row_idx * unit_px
+        x = numpad_start_x
+        for item in np_row:
             if isinstance(item, (int, float)):
                 x += item * unit_px
             else:

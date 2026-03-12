@@ -146,6 +146,22 @@ NAV_CLUSTER_ROWS = [
 # Nav cluster row alignment: index into KEYBOARD_ROWS
 NAV_ROW_ALIGNMENT = [0, 1, 3, 4, 5]
 
+# Numpad layout (rendered to the right of nav cluster)
+NUMPAD_ROWS = [
+    # Row 0 (bottom, aligned with modifier/space row)
+    [("0", "NUMPAD_0", 2.0), (".", "NUMPAD_PERIOD", 1.0), ("Ent", "NUMPAD_ENTER", 1.0)],
+    # Row 1 (aligned with shift row)
+    [("1", "NUMPAD_1", 1.0), ("2", "NUMPAD_2", 1.0), ("3", "NUMPAD_3", 1.0)],
+    # Row 2 (aligned with home row)
+    [("4", "NUMPAD_4", 1.0), ("5", "NUMPAD_5", 1.0), ("6", "NUMPAD_6", 1.0), ("+", "NUMPAD_PLUS", 1.0)],
+    # Row 3 (aligned with QWERTY row)
+    [("7", "NUMPAD_7", 1.0), ("8", "NUMPAD_8", 1.0), ("9", "NUMPAD_9", 1.0)],
+    # Row 4 (aligned with number row)
+    [("/", "NUMPAD_SLASH", 1.0), ("*", "NUMPAD_ASTERIX", 1.0), ("-", "NUMPAD_MINUS", 1.0)],
+]
+
+NUMPAD_ROW_ALIGNMENT = [0, 1, 2, 3, 4]
+
 # Modifier event types for identification
 _MODIFIER_EVENTS = {
     "LEFT_CTRL", "RIGHT_CTRL", "LEFT_SHIFT", "RIGHT_SHIFT",

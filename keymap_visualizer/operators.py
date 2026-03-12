@@ -266,6 +266,14 @@ def _deferred_start_modal():
         state._launch_window = None
         return None
 
+    # Hide header and footer for clean visualizer display
+    space = area.spaces.active
+    if space is not None:
+        if hasattr(space, 'show_region_header'):
+            space.show_region_header = False
+        if hasattr(space, 'show_region_footer'):
+            space.show_region_footer = False
+
     region = None
     for r in area.regions:
         if r.type == 'WINDOW':
