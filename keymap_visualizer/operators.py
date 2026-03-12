@@ -9,6 +9,8 @@ from .drawing import _draw_callback
 from .handlers import (
     _handle_idle, _handle_menu_open, _handle_capture,
     _handle_conflict, _handle_search, _handle_filter_dropdown,
+    _handle_shortcut_search, _handle_preset_dropdown,
+    _handle_preset_name_input,
 )
 
 
@@ -63,9 +65,6 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
             return {'CANCELLED'}
 
         # Force redraws while layout hasn't been computed yet.
-        # This is critical: _handle_idle consumes MOUSEMOVE with RUNNING_MODAL,
-        # so the tag_redraw before PASS_THROUGH would never fire during normal
-        # interaction, creating a deadlock if the initial layout failed.
         if not state._key_rects:
             try:
                 if state._target_area is not None:
@@ -75,7 +74,6 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
 
         # Handle WINDOW_DEACTIVATE (Phase 7 hardening)
         if event.type == 'WINDOW_DEACTIVATE':
-            # Verify window still exists
             try:
                 _ = self._target_window.screen
             except ReferenceError:
@@ -83,13 +81,25 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
                 return {'CANCELLED'}
             return {'PASS_THROUGH'}
 
+        # v0.9 Feature 6: Preset name input takes priority
+        if state._preset_name_input_active and state._modal_state == 'IDLE':
+            result = _handle_preset_name_input(context, event)
+            if result is not None:
+                return result
+
+        # v0.9 Feature 5: Shortcut search takes priority
+        if state._shortcut_search_active and state._modal_state == 'IDLE':
+            result = _handle_shortcut_search(context, event)
+            if result is not None:
+                return result
+
         # Search mode takes priority when active (Phase 7)
         if state._search_active and state._modal_state == 'IDLE':
             result = _handle_search(context, event)
             if result is not None:
                 return result
 
-        # State machine dispatch (Phase 5 + Feature 4)
+        # State machine dispatch (Phase 5 + Feature 4 + v0.9 Feature 6)
         if state._modal_state == 'MENU_OPEN':
             return _handle_menu_open(context, event)
         elif state._modal_state == 'CAPTURE':
@@ -98,6 +108,8 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
             return _handle_conflict(context, event)
         elif state._modal_state == 'FILTER_DROPDOWN':
             return _handle_filter_dropdown(context, event)
+        elif state._modal_state == 'PRESET_DROPDOWN':
+            return _handle_preset_dropdown(context, event)
 
         # IDLE state
         result = _handle_idle(context, event)
@@ -174,6 +186,31 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
         state._filter_dropdown_open = None
         state._filter_dropdown_rects = []
         state._filter_dropdown_hovered = -1
+        # v0.9 Feature 1: Key labels cleanup
+        state._key_labels_cache = {}
+        state._key_labels_dirty = True
+        # v0.9 Feature 2: Physical modifiers cleanup
+        state._physical_modifiers = {'ctrl': False, 'shift': False, 'alt': False, 'oskey': False}
+        state._modifier_source = 'TOGGLE'
+        # v0.9 Feature 3: Category colors cleanup
+        state._key_categories_cache = {}
+        state._key_categories_dirty = True
+        # v0.9 Feature 4: Undo/redo cleanup
+        state._undo_stack.clear()
+        state._redo_stack.clear()
+        # v0.9 Feature 5: Shortcut search cleanup
+        state._shortcut_search_active = False
+        # v0.9 Feature 6: Presets cleanup
+        state._presets_list = []
+        state._active_preset_name = ""
+        state._presets_btn_rect = None
+        state._presets_hovered = False
+        state._preset_dropdown_open = False
+        state._preset_dropdown_rects = []
+        state._preset_dropdown_hovered = -1
+        state._preset_name_input_active = False
+        state._preset_name_text = ""
+
         state._set_running(False)
 
         # Redraw any remaining text-editor areas to clear stale overlay
@@ -187,11 +224,7 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
 
 
 def _deferred_start_modal():
-    """Module-level timer callback to invoke the modal in the new window.
-
-    Must be module-level (not a bound method on the operator) because Blender
-    frees operator StructRNA after execute() returns {'FINISHED'}.
-    """
+    """Module-level timer callback to invoke the modal in the new window."""
     window = state._launch_window
     if window is None:
         state._set_running(False)
@@ -218,23 +251,19 @@ def _deferred_start_modal():
         state._launch_window = None
         return None
 
-    # Re-fetch area from window (the original reference may be stale
-    # after the area type change from the default to TEXT_EDITOR)
     area = window.screen.areas[0]
 
-    # Retry if area type hasn't changed yet (Blender may need more frames)
     if area.type != 'TEXT_EDITOR':
         state._launch_retry_count += 1
         if state._launch_retry_count < 10:
             print(f"[Keymap Visualizer] Timer: area type is '{area.type}', "
                   f"retry {state._launch_retry_count}/10")
-            return 0.1  # Reschedule
+            return 0.1
         print("[Keymap Visualizer] Timer: area type never became TEXT_EDITOR, aborting")
         state._set_running(False)
         state._launch_window = None
         return None
 
-    # Find a region to use as override
     region = None
     for r in area.regions:
         if r.type == 'WINDOW':
@@ -251,7 +280,6 @@ def _deferred_start_modal():
         state._launch_window = None
         return None
 
-    # If region not yet laid out, retry
     if region.width == 0 or region.height == 0:
         state._launch_retry_count += 1
         if state._launch_retry_count < 10:
@@ -280,7 +308,7 @@ def _deferred_start_modal():
         state._set_running(False)
 
     state._launch_window = None
-    return None  # One-shot, don't reschedule
+    return None
 
 
 class WM_OT_keymap_viz_launch(bpy.types.Operator):
@@ -295,10 +323,8 @@ class WM_OT_keymap_viz_launch(bpy.types.Operator):
 
         state._set_running(True)
 
-        # Snapshot existing windows so we can identify the new one
         existing_windows = set(context.window_manager.windows[:])
 
-        # Open a new window — try multiple approaches
         win_created = False
         for op_name in ('window_new', 'window_duplicate'):
             if win_created:
@@ -320,7 +346,6 @@ class WM_OT_keymap_viz_launch(bpy.types.Operator):
             self.report({'ERROR'}, "Failed to create new window")
             return {'CANCELLED'}
 
-        # Find the new window
         new_window = None
         for w in context.window_manager.windows:
             if w not in existing_windows:
@@ -332,18 +357,14 @@ class WM_OT_keymap_viz_launch(bpy.types.Operator):
             self.report({'ERROR'}, "Failed to find new window")
             return {'CANCELLED'}
 
-        # Set the first area to TEXT_EDITOR
         num_areas = len(new_window.screen.areas)
         print(f"[Keymap Visualizer] New window has {num_areas} area(s), "
               f"type='{new_window.screen.areas[0].type}'")
         new_window.screen.areas[0].type = 'TEXT_EDITOR'
 
-        # Store in module-level state (NOT on self — Blender frees the
-        # operator StructRNA after execute returns FINISHED)
         state._launch_window = new_window
         state._launch_retry_count = 0
 
-        # Use a one-shot timer to invoke the modal after the window is set up
         bpy.app.timers.register(_deferred_start_modal, first_interval=0.15)
 
         return {'FINISHED'}

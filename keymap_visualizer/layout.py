@@ -96,6 +96,15 @@ def _compute_keyboard_layout(region_width, region_height):
     else:
         state._export_button_rect = None
 
+    # v0.9 Feature 6: Presets button (to the right of export button)
+    if state._export_button_rect is not None:
+        ex_x, ex_y, ex_w, ex_h = state._export_button_rect
+        pr_x = ex_x + ex_w + toggle_gap
+        pr_w = unit_px * 2.5
+        state._presets_btn_rect = (pr_x, toggle_y, pr_w, toggle_h)
+    else:
+        state._presets_btn_rect = None
+
     # --- Feature 4: Filter buttons (above modifier toggles) ---
     filter_y = toggle_y + toggle_h + unit_px * 0.3
     filter_btn_h = unit_px * 0.7

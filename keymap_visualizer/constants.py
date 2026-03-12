@@ -215,6 +215,117 @@ COL_GPU_MENU_BORDER = (0.4, 0.4, 0.45, 1.0)
 # Feature 3: Bound-key highlighting
 COL_KEY_BOUND = (0.28, 0.30, 0.38, 1.0)
 
+# Shortcut search overlay color
+COL_SHORTCUT_SEARCH_TEXT = (0.3, 0.9, 0.8, 1.0)
+
+# ---------------------------------------------------------------------------
+# Feature 1 (v0.9): Operator abbreviations for on-key labels
+# ---------------------------------------------------------------------------
+OPERATOR_ABBREVIATIONS = {
+    "transform.translate": "Move",
+    "transform.rotate": "Rotate",
+    "transform.resize": "Scale",
+    "transform.mirror": "Mirror",
+    "transform.shrink_fatten": "Shrink/Fat",
+    "transform.push_pull": "Push/Pull",
+    "transform.shear": "Shear",
+    "transform.tosphere": "To Sphere",
+    "mesh.extrude_region_move": "Extrude",
+    "mesh.extrude_faces_move": "Extr Face",
+    "mesh.inset": "Inset",
+    "mesh.bevel": "Bevel",
+    "mesh.knife_tool": "Knife",
+    "mesh.bisect": "Bisect",
+    "mesh.loopcut_slide": "Loop Cut",
+    "mesh.offset_edge_loops_slide": "Offset",
+    "mesh.subdivide": "Subdivide",
+    "mesh.merge": "Merge",
+    "mesh.separate": "Separate",
+    "mesh.fill": "Fill",
+    "mesh.delete": "Delete",
+    "mesh.dupli_extrude_cursor": "Spin",
+    "mesh.select_all": "Sel All",
+    "mesh.select_linked": "Sel Link",
+    "mesh.select_loop": "Sel Loop",
+    "mesh.hide": "Hide",
+    "mesh.reveal": "Reveal",
+    "object.delete": "Delete",
+    "object.duplicate_move": "Duplicate",
+    "object.join": "Join",
+    "object.parent_set": "Parent",
+    "object.shade_smooth": "Smooth",
+    "object.shade_flat": "Flat",
+    "object.select_all": "Sel All",
+    "object.hide_view_set": "Hide",
+    "object.origin_set": "Origin",
+    "ed.undo": "Undo",
+    "ed.redo": "Redo",
+    "ed.undo_history": "Undo Hist",
+    "wm.save_mainfile": "Save",
+    "wm.save_as_mainfile": "Save As",
+    "wm.open_mainfile": "Open",
+    "wm.call_menu": "Menu",
+    "wm.search_menu": "Search",
+    "wm.tool_set_by_id": "Tool",
+    "screen.animation_play": "Play",
+    "screen.frame_jump": "Jump",
+    "screen.keyframe_jump": "Next Key",
+    "screen.screen_full_area": "Fullscreen",
+    "anim.keyframe_insert": "Key Insert",
+    "anim.keyframe_delete": "Key Delete",
+    "view3d.rotate": "Orbit",
+    "view3d.move": "Pan",
+    "view3d.zoom": "Zoom",
+    "view3d.view_selected": "Frame Sel",
+    "view3d.view_all": "Frame All",
+    "view3d.view_camera": "Camera",
+    "view3d.snap_menu": "Snap",
+    "view3d.localview": "Local View",
+    "view3d.toggle_shading": "Shading",
+    "node.translate_attach": "Move",
+    "node.duplicate_move": "Duplicate",
+    "node.links_mute": "Mute Link",
+    "sculpt.brush_stroke": "Brush",
+    "paint.image_paint": "Paint",
+    "uv.select_all": "Sel All",
+    "file.save_blendfile": "Save",
+}
+
+# ---------------------------------------------------------------------------
+# Feature 3 (v0.9): Operator category classification and colors
+# ---------------------------------------------------------------------------
+OPERATOR_CATEGORIES = {
+    "transform.": "Transform",
+    "view3d.": "Navigation",
+    "mesh.": "Mesh",
+    "object.": "Object",
+    "screen.": "Playback",
+    "anim.": "Animation",
+    "node.": "Nodes",
+    "uv.": "UV",
+    "sculpt.": "Sculpt",
+    "paint.": "Paint",
+    "wm.": "System",
+    "ed.": "Edit",
+    "file.": "File",
+}
+
+CATEGORY_COLORS = {
+    "Transform": (0.45, 0.30, 0.15, 0.90),
+    "Navigation": (0.15, 0.35, 0.38, 0.90),
+    "Mesh": (0.30, 0.20, 0.40, 0.90),
+    "Object": (0.25, 0.35, 0.25, 0.90),
+    "Playback": (0.20, 0.28, 0.45, 0.90),
+    "Animation": (0.40, 0.35, 0.15, 0.90),
+    "Nodes": (0.35, 0.25, 0.30, 0.90),
+    "UV": (0.20, 0.38, 0.30, 0.90),
+    "Sculpt": (0.38, 0.22, 0.22, 0.90),
+    "Paint": (0.35, 0.30, 0.20, 0.90),
+    "System": (0.25, 0.25, 0.30, 0.90),
+    "Edit": (0.30, 0.30, 0.35, 0.90),
+    "File": (0.22, 0.30, 0.28, 0.90),
+}
+
 # ---------------------------------------------------------------------------
 # Feature 4: Editor/Mode filter lists
 # ---------------------------------------------------------------------------

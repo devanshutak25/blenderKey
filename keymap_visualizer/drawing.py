@@ -5,6 +5,7 @@ Keymap Visualizer – GPU drawing helpers and main draw callback
 import bpy
 import gpu
 import blf
+import math
 import time
 from gpu_extras.batch import batch_for_shader
 
@@ -19,8 +20,12 @@ from .constants import (
     COL_SHADOW, COL_SEARCH_BG, COL_SEARCH_BORDER,
     COL_GPU_MENU_BG, COL_GPU_MENU_HOVER, COL_GPU_MENU_BORDER,
     COL_KEY_BOUND, SPACE_TYPE_FILTERS, MODE_FILTERS,
+    COL_SHORTCUT_SEARCH_TEXT, CATEGORY_COLORS,
 )
-from .keymap_data import _get_bindings_for_key, _compute_bound_keys
+from .keymap_data import (
+    _get_bindings_for_key, _compute_bound_keys,
+    _compute_key_labels, _compute_key_categories,
+)
 from .layout import _compute_keyboard_layout
 
 
@@ -47,6 +52,15 @@ def _get_colors():
             'panel_bg': COL_INFO_BG,
             'key_bound': COL_KEY_BOUND,
         }
+
+
+def _get_category_colors_enabled():
+    """Check if category colors are enabled in preferences."""
+    try:
+        prefs = bpy.context.preferences.addons["keymap_visualizer"].preferences
+        return prefs.enable_category_colors
+    except Exception:
+        return True
 
 
 def _draw_rect(shader, x, y, w, h, color):
@@ -117,16 +131,11 @@ def _build_filter_dropdown(filter_type, button_rect, region_width, region_height
 
 
 def _build_gpu_menu(mx, my, region_width, region_height, bindings=None):
-    """Build GPU-drawn context menu items at mouse position.
-
-    Feature 5: When bindings is provided, shows all bindings with per-binding actions.
-    Menu items are 8-tuples: (label, action, x, y, w, h, binding_index, is_header).
-    """
+    """Build GPU-drawn context menu items at mouse position."""
     state._gpu_menu_items = []
     state._gpu_menu_hovered = -1
 
     if bindings is None:
-        # Legacy fallback (single binding)
         items = [
             ("Rebind", "REBIND"),
             ("Unbind", "UNBIND"),
@@ -158,12 +167,10 @@ def _build_gpu_menu(mx, my, region_width, region_height, bindings=None):
     action_h = 26
     padding = 2
 
-    # Build menu items list
     menu_entries = []
     max_bindings = min(len(bindings), 5)
     for bi in range(max_bindings):
         km_name, op_id, mod_str, kmi, is_active = bindings[bi]
-        # Header
         prefix = f"[{mod_str}] " if mod_str else ""
         active_tag = "" if is_active else "[inactive] "
         header_label = f"{active_tag}{prefix}{op_id}"
@@ -173,7 +180,6 @@ def _build_gpu_menu(mx, my, region_width, region_height, bindings=None):
         if len(header_label) > 50:
             header_label = header_label[:47] + "..."
         menu_entries.append((header_label, "", bi, True, header_h))
-        # Actions
         menu_entries.append(("  Rebind", "REBIND", bi, False, action_h))
         if is_active:
             menu_entries.append(("  Unbind", "UNBIND", bi, False, action_h))
@@ -185,19 +191,15 @@ def _build_gpu_menu(mx, my, region_width, region_height, bindings=None):
     if not menu_entries:
         menu_entries.append(("No bindings", "", -1, True, header_h))
 
-    # Calculate total height
     total_h = sum(e[4] + padding for e in menu_entries) + padding
 
-    # Position
     menu_x = mx
     menu_y = my - total_h
     if menu_x + item_w > region_width:
         menu_x = region_width - item_w - 5
     if menu_y < 5:
-        # Position above mouse instead
         menu_y = my + 5
 
-    # Build rects
     current_y = my
     going_down = menu_y <= my
     if not going_down:
@@ -213,6 +215,42 @@ def _build_gpu_menu(mx, my, region_width, region_height, bindings=None):
         state._gpu_menu_items.append((label, action, menu_x, iy, item_w, ih, bi, is_header))
 
 
+def _build_preset_dropdown(button_rect, region_width, region_height):
+    """Build dropdown rects for the presets button."""
+    from .presets import _list_presets
+
+    state._preset_dropdown_rects = []
+    state._preset_dropdown_hovered = -1
+
+    presets = _list_presets()
+    bx, by, bw, bh = button_rect
+
+    item_h = 26
+    item_w = max(bw, 180)
+    padding = 2
+
+    # Build items: presets + Save As + Delete
+    items = []
+    for name in presets:
+        items.append((name, f"LOAD:{name}"))
+    items.append(("Save As...", "SAVE_AS"))
+    if state._active_preset_name:
+        items.append((f"Delete '{state._active_preset_name}'", "DELETE"))
+
+    dropdown_x = bx
+    dropdown_y = by - len(items) * (item_h + padding) - padding
+    if dropdown_x + item_w > region_width:
+        dropdown_x = region_width - item_w - 5
+    if dropdown_y < 5:
+        dropdown_y = 5
+
+    for i, (label, action) in enumerate(items):
+        iy = by - (i + 1) * (item_h + padding)
+        if iy < dropdown_y:
+            iy = dropdown_y + i * (item_h + padding)
+        state._preset_dropdown_rects.append((label, action, dropdown_x, iy, item_w, item_h))
+
+
 _draw_callback_count = 0
 
 
@@ -224,7 +262,7 @@ def _draw_callback():
         area = state._target_area
         if area is None:
             return
-        _ = area.type  # Force access to detect stale reference
+        _ = area.type
     except ReferenceError:
         return
 
@@ -243,7 +281,7 @@ def _draw_callback():
         if (rw, rh) != state._cached_region_size:
             _compute_keyboard_layout(rw, rh)
 
-        # Retry layout if previous attempt failed (e.g., region was 0x0)
+        # Retry layout if previous attempt failed
         if not state._key_rects and rw > 0 and rh > 0:
             _compute_keyboard_layout(rw, rh)
 
@@ -257,7 +295,7 @@ def _draw_callback():
         if _draw_callback_count > 0:
             print(f"[Keymap Visualizer] draw: first successful draw "
                   f"(region={rw}x{rh}, {len(state._key_rects)} keys)")
-            _draw_callback_count = -1  # Don't print again
+            _draw_callback_count = -1
 
         # Hover transition (Phase 7)
         now = time.monotonic()
@@ -269,10 +307,13 @@ def _draw_callback():
         elif state._hover_transition < 1.0:
             state._hover_transition = min(1.0, state._hover_transition + dt * 8.0)
 
-        # Feature 3: Compute bound keys
+        # Feature 3: Compute bound keys, key labels, key categories
         _compute_bound_keys()
+        _compute_key_labels()
+        _compute_key_categories()
 
         colors = _get_colors()
+        category_colors_enabled = _get_category_colors_enabled()
         gpu.state.blend_set('ALPHA')
 
         shader_uniform = gpu.shader.from_builtin('UNIFORM_COLOR')
@@ -308,7 +349,6 @@ def _draw_callback():
             cb_col = COL_BUTTON_HOVER if state._close_hovered else COL_BUTTON_NORMAL
             _draw_rect(shader_uniform, cbx, cby, cbw, cbh, cb_col)
             _draw_rect_border(shader_uniform, cbx, cby, cbw, cbh, COL_BORDER)
-            # Draw X
             font_id = 0
             cb_font_size = max(10, int(cbh * 0.5))
             blf.size(font_id, cb_font_size)
@@ -322,7 +362,6 @@ def _draw_callback():
             rhx, rhy, rhw, rhh = state._resize_handle_rect
             rh_col = COL_BUTTON_HOVER if state._resize_hovered else COL_BUTTON_NORMAL
             _draw_rect(shader_uniform, rhx, rhy, rhw, rhh, rh_col)
-            # Draw diagonal lines to indicate resize
             line_verts = []
             line_indices = []
             for li in range(3):
@@ -368,16 +407,16 @@ def _draw_callback():
         indices = []
         idx = 0
 
-        # Check which keys have any active bindings (for inactive key coloring)
         search_dimming = state._search_active and state._search_text
 
         for i, kr in enumerate(state._key_rects):
-            # Determine color with priority:
+            # Color priority:
             # 1. Selected → key_selected
             # 2. Hovered → lerp to key_hovered
             # 3. Modifier → COL_KEY_MODIFIER
-            # 4. Bound (Feature 3) → key_bound
-            # 5. Unbound → key_default
+            # 4. Category color (v0.9) → CATEGORY_COLORS[cat]
+            # 5. Bound → key_bound
+            # 6. Unbound → key_default
             if i == state._selected_key_index:
                 col = colors['key_selected']
             elif i == state._hovered_key_index:
@@ -387,6 +426,9 @@ def _draw_callback():
                     col = colors['key_hovered']
             elif kr.event_type in _MODIFIER_EVENTS:
                 col = COL_KEY_MODIFIER
+            elif category_colors_enabled and kr.event_type in state._key_categories_cache:
+                cat = state._key_categories_cache[kr.event_type]
+                col = CATEGORY_COLORS.get(cat, colors['key_bound'])
             elif kr.event_type in state._bound_keys_cache:
                 col = colors['key_bound']
             else:
@@ -443,29 +485,72 @@ def _draw_callback():
             hl_batch.draw(shader_uniform)
             gpu.state.line_width_set(1.0)
 
-        # --- E. Key labels ---
+        # --- E. Key labels (v0.9: two-line — key label top-left, command label below) ---
         font_id = 0
         font_size = max(10, int(unit_px * 0.3))
+        cmd_font_size = max(8, int(unit_px * 0.18))
 
         if unit_px >= 20:
-            blf.size(font_id, font_size)
-            blf.color(font_id, *colors['text'])
             for i, kr in enumerate(state._key_rects):
                 if search_dimming and kr.event_type not in state._search_matching_keys:
-                    blf.color(font_id, *(COL_TEXT_DIM[0] * 0.4, COL_TEXT_DIM[1] * 0.4,
-                                         COL_TEXT_DIM[2] * 0.4, COL_TEXT_DIM[3]))
+                    text_col = (COL_TEXT_DIM[0] * 0.4, COL_TEXT_DIM[1] * 0.4,
+                                COL_TEXT_DIM[2] * 0.4, COL_TEXT_DIM[3])
                 else:
-                    blf.color(font_id, *colors['text'])
-                tw, th = blf.dimensions(font_id, kr.label)
-                tx = kr.x + (kr.w - tw) / 2
-                ty = kr.y + (kr.h - th) / 2
-                blf.position(font_id, tx, ty, 0)
-                blf.draw(font_id, kr.label)
+                    text_col = colors['text']
+
+                cmd_label = state._key_labels_cache.get(kr.event_type)
+                if cmd_label and kr.w >= unit_px * 0.8:
+                    # Two-line layout: key label top-left, command label bottom
+                    blf.size(font_id, font_size)
+                    blf.color(font_id, *text_col)
+                    blf.position(font_id, kr.x + 3, kr.y + kr.h - font_size - 2, 0)
+                    blf.draw(font_id, kr.label)
+
+                    # Command label (smaller, below)
+                    blf.size(font_id, cmd_font_size)
+                    blf.color(font_id, *COL_TEXT_DIM)
+                    # Truncate if too wide
+                    display_cmd = cmd_label
+                    tw, th = blf.dimensions(font_id, display_cmd)
+                    while tw > kr.w - 6 and len(display_cmd) > 3:
+                        display_cmd = display_cmd[:-4] + "..."
+                        tw, th = blf.dimensions(font_id, display_cmd)
+                    blf.position(font_id, kr.x + 3, kr.y + kr.h * 0.15, 0)
+                    blf.draw(font_id, display_cmd)
+                else:
+                    # Single centered label (original style)
+                    blf.size(font_id, font_size)
+                    blf.color(font_id, *text_col)
+                    tw, th = blf.dimensions(font_id, kr.label)
+                    tx = kr.x + (kr.w - tw) / 2
+                    ty = kr.y + (kr.h - th) / 2
+                    blf.position(font_id, tx, ty, 0)
+                    blf.draw(font_id, kr.label)
 
         # --- F. Modifier toggle bar ---
+        # v0.9 Feature 2: Pulsing brightness when physical modifier held
+        physical_active = any(state._physical_modifiers.values())
+        pulse_t = 0.0
+        if physical_active:
+            pulse_t = 0.5 + 0.5 * math.sin(now * 2 * math.pi * 2)  # 2Hz sine
+
         for label, dict_key, mx, my, mw, mh in state._modifier_rects:
-            is_active = state._active_modifiers.get(dict_key, False)
-            col = COL_TOGGLE_ACTIVE if is_active else COL_TOGGLE_INACTIVE
+            is_active = state._get_effective_modifiers().get(dict_key, False)
+
+            if is_active and physical_active and state._physical_modifiers.get(dict_key, False):
+                # Pulse the toggle color when physical mod is held
+                base_col = COL_TOGGLE_ACTIVE
+                col = (
+                    min(1.0, base_col[0] + pulse_t * 0.15),
+                    min(1.0, base_col[1] + pulse_t * 0.15),
+                    min(1.0, base_col[2] + pulse_t * 0.15),
+                    base_col[3],
+                )
+            elif is_active:
+                col = COL_TOGGLE_ACTIVE
+            else:
+                col = COL_TOGGLE_INACTIVE
+
             _draw_rect(shader_uniform, mx, my, mw, mh, col)
             border_col = COL_BORDER_HIGHLIGHT if is_active else COL_BORDER
             _draw_rect_border(shader_uniform, mx, my, mw, mh, border_col)
@@ -492,6 +577,39 @@ def _draw_callback():
                 blf.position(font_id, ex + (ew - tw) / 2, ey + (eh - th) / 2, 0)
                 blf.draw(font_id, elabel)
 
+        # --- v0.9 Feature 6: Presets button ---
+        if state._presets_btn_rect is not None:
+            px, py, pw, ph = state._presets_btn_rect
+            pr_col = COL_BUTTON_HOVER if state._presets_hovered else COL_BUTTON_NORMAL
+            _draw_rect(shader_uniform, px, py, pw, ph, pr_col)
+            _draw_rect_border(shader_uniform, px, py, pw, ph, COL_BORDER)
+
+            if unit_px >= 20:
+                blf.size(font_id, font_size)
+                blf.color(font_id, *colors['text'])
+                plabel = state._active_preset_name if state._active_preset_name else "Presets"
+                tw, th = blf.dimensions(font_id, plabel)
+                # Truncate if needed
+                while tw > pw - 10 and len(plabel) > 3:
+                    plabel = plabel[:-4] + "..."
+                    tw, th = blf.dimensions(font_id, plabel)
+                blf.position(font_id, px + (pw - tw) / 2, py + (ph - th) / 2, 0)
+                blf.draw(font_id, plabel)
+
+        # --- v0.9 Feature 4: Undo/redo counter ---
+        undo_count = len(state._undo_stack)
+        redo_count = len(state._redo_stack)
+        if (undo_count > 0 or redo_count > 0) and state._export_button_rect is not None:
+            ex, ey, ew, eh = state._export_button_rect
+            undo_text = f"Undo: {undo_count} | Redo: {redo_count}"
+            undo_font_size = max(8, int(unit_px * 0.2))
+            blf.size(font_id, undo_font_size)
+            blf.color(font_id, *COL_TEXT_DIM)
+            tw, th = blf.dimensions(font_id, undo_text)
+            # Position below the export button
+            blf.position(font_id, ex, ey - th - 4, 0)
+            blf.draw(font_id, undo_text)
+
         # --- Feature 4: Filter buttons ---
         for btn_rect, hovered, filter_type in [
             (state._filter_editor_btn_rect, state._filter_editor_hovered, 'EDITOR'),
@@ -508,7 +626,6 @@ def _draw_callback():
                     blf.color(font_id, *colors['text'])
                     flabel = _get_filter_label(filter_type)
                     tw, th = blf.dimensions(font_id, flabel)
-                    # Truncate if too wide
                     while tw > fbw - 10 and len(flabel) > 3:
                         flabel = flabel[:-4] + "..."
                         tw, th = blf.dimensions(font_id, flabel)
@@ -517,7 +634,6 @@ def _draw_callback():
 
         # --- Feature 4: Filter dropdown ---
         if state._filter_dropdown_open is not None and state._filter_dropdown_rects:
-            # Draw dropdown background
             first_dd = state._filter_dropdown_rects[0]
             dd_min_y = min(item[3] for item in state._filter_dropdown_rects)
             dd_max_y = max(item[3] + item[5] for item in state._filter_dropdown_rects)
@@ -533,7 +649,7 @@ def _draw_callback():
                 if di == state._filter_dropdown_hovered:
                     dcol = COL_GPU_MENU_HOVER
                 elif dvalue == current_value:
-                    dcol = (0.22, 0.28, 0.35, 1.0)  # Subtle highlight for current
+                    dcol = (0.22, 0.28, 0.35, 1.0)
                 else:
                     dcol = COL_GPU_MENU_BG
                 _draw_rect(shader_uniform, dx, dy, dw, dh, dcol)
@@ -541,11 +657,65 @@ def _draw_callback():
                 if unit_px >= 20:
                     blf.size(font_id, font_size)
                     blf.color(font_id, *colors['text'])
-                    # Checkmark for current selection
                     prefix = "* " if dvalue == current_value else "  "
                     tw, th = blf.dimensions(font_id, prefix + dlabel)
                     blf.position(font_id, dx + 8, dy + (dh - th) / 2, 0)
                     blf.draw(font_id, prefix + dlabel)
+
+        # --- v0.9 Feature 6: Preset dropdown ---
+        if state._preset_dropdown_open and state._preset_dropdown_rects:
+            first_dd = state._preset_dropdown_rects[0]
+            dd_min_y = min(item[3] for item in state._preset_dropdown_rects)
+            dd_max_y = max(item[3] + item[5] for item in state._preset_dropdown_rects)
+            dd_x = first_dd[2] - 3
+            dd_w = first_dd[4] + 6
+            dd_h = (dd_max_y - dd_min_y) + 6
+
+            _draw_rect(shader_uniform, dd_x, dd_min_y - 3, dd_w, dd_h, COL_GPU_MENU_BG)
+            _draw_rect_border(shader_uniform, dd_x, dd_min_y - 3, dd_w, dd_h, COL_GPU_MENU_BORDER)
+
+            for di, item in enumerate(state._preset_dropdown_rects):
+                dlabel, daction, dx, dy, dw, dh = item[:6]
+                if di == state._preset_dropdown_hovered:
+                    dcol = COL_GPU_MENU_HOVER
+                elif daction.startswith('LOAD:') and daction[5:] == state._active_preset_name:
+                    dcol = (0.22, 0.28, 0.35, 1.0)
+                else:
+                    dcol = COL_GPU_MENU_BG
+                _draw_rect(shader_uniform, dx, dy, dw, dh, dcol)
+
+                if unit_px >= 20:
+                    blf.size(font_id, font_size)
+                    blf.color(font_id, *colors['text'])
+                    tw, th = blf.dimensions(font_id, dlabel)
+                    blf.position(font_id, dx + 8, dy + (dh - th) / 2, 0)
+                    blf.draw(font_id, dlabel)
+
+        # --- v0.9 Feature 3: Category color legend ---
+        if category_colors_enabled and state._key_categories_cache:
+            active_cats = set(state._key_categories_cache.values())
+            if active_cats:
+                legend_font_size = max(8, int(unit_px * 0.2))
+                blf.size(font_id, legend_font_size)
+                swatch_size = max(8, int(unit_px * 0.25))
+                swatch_gap = 4
+                legend_x = max_x + pad - 5
+                legend_y = max_y - 5
+
+                # Draw from top-right, going down
+                for cat_name in sorted(active_cats):
+                    cat_col = CATEGORY_COLORS.get(cat_name, COL_KEY_BOUND)
+                    legend_y -= swatch_size + swatch_gap
+
+                    # Color swatch
+                    _draw_rect(shader_uniform, legend_x - swatch_size * 6 - swatch_size,
+                               legend_y, swatch_size, swatch_size, cat_col)
+                    # Label
+                    blf.color(font_id, *COL_TEXT_DIM)
+                    tw, th = blf.dimensions(font_id, cat_name)
+                    blf.position(font_id, legend_x - swatch_size * 6 + swatch_gap,
+                                 legend_y + (swatch_size - th) / 2, 0)
+                    blf.draw(font_id, cat_name)
 
         # --- F3. Search bar (Phase 7) ---
         if state._search_active:
@@ -556,7 +726,6 @@ def _draw_callback():
             if state._modifier_rects:
                 mod_max = max(y + h for _, _, x, y, w, h in state._modifier_rects)
                 sb_y = mod_max + 10
-            # Push above filter buttons if present
             if state._filter_editor_btn_rect:
                 fx, fy, fw, fh = state._filter_editor_btn_rect
                 sb_y = max(sb_y, fy + fh + 10)
@@ -575,6 +744,35 @@ def _draw_callback():
                 blf.position(font_id, sb_x + 8, sb_y + (sb_h - th) / 2, 0)
                 blf.draw(font_id, search_display)
 
+        # --- v0.9 Feature 6: Preset name input overlay ---
+        if state._preset_name_input_active:
+            sb_w = min(300, rw * 0.4)
+            sb_h = unit_px * 0.7
+            sb_x = (rw - sb_w) / 2
+            sb_y = rh / 2 - sb_h / 2
+
+            _draw_rect(shader_uniform, 0, 0, rw, rh, COL_CAPTURE_OVERLAY)
+            _draw_rect(shader_uniform, sb_x, sb_y, sb_w, sb_h, COL_SEARCH_BG)
+            _draw_rect_border(shader_uniform, sb_x, sb_y, sb_w, sb_h, COL_SEARCH_BORDER)
+
+            if unit_px >= 20:
+                blf.size(font_id, font_size)
+                # Title above input
+                blf.color(font_id, *colors['text'])
+                title = "Save Preset As:"
+                tw, th = blf.dimensions(font_id, title)
+                blf.position(font_id, sb_x + (sb_w - tw) / 2, sb_y + sb_h + 8, 0)
+                blf.draw(font_id, title)
+                # Input text
+                blf.color(font_id, *COL_CAPTURE_TEXT)
+                input_display = state._preset_name_text + "|"
+                if not state._preset_name_text:
+                    input_display = "Enter preset name... |"
+                    blf.color(font_id, *COL_TEXT_DIM)
+                tw, th = blf.dimensions(font_id, input_display)
+                blf.position(font_id, sb_x + 8, sb_y + (sb_h - th) / 2, 0)
+                blf.draw(font_id, input_display)
+
         # --- G. Info panel ---
         info_x = min_x - pad
         info_w = (max_x + pad) - info_x
@@ -583,7 +781,6 @@ def _draw_callback():
 
         _draw_rect(shader_uniform, info_x, info_y, info_w, info_h, colors['panel_bg'])
 
-        # Info text
         active_idx = state._selected_key_index if state._selected_key_index >= 0 else state._hovered_key_index
         info_font_size = max(10, int(unit_px * 0.28))
         blf.size(font_id, info_font_size)
@@ -592,10 +789,8 @@ def _draw_callback():
             kr = state._key_rects[active_idx]
             bindings = _get_bindings_for_key(kr.event_type, state._active_modifiers)
 
-            # Header
             blf.color(font_id, *colors['text'])
             header = f"Key: {kr.label} ({kr.event_type})"
-            # Show active filter in header
             if state._filter_space_type != 'ALL' or state._filter_mode != 'ALL':
                 filter_parts = []
                 if state._filter_space_type != 'ALL':
@@ -615,7 +810,6 @@ def _draw_callback():
                     active_tag = "" if is_active else "[inactive] "
                     line = f"{active_tag}{prefix}{op_id}  ({km_name})"
 
-                    # Dim inactive bindings
                     if is_active:
                         blf.color(font_id, *COL_TEXT_DIM)
                     else:
@@ -639,7 +833,7 @@ def _draw_callback():
         else:
             blf.color(font_id, *COL_TEXT_DIM)
             blf.position(font_id, info_x + 10, info_y + info_h / 2 - info_font_size / 2, 0)
-            blf.draw(font_id, "Hover over a key to see its bindings  |  Right-click to edit  |  / to search")
+            blf.draw(font_id, "Hover over a key to see its bindings  |  Right-click to edit  |  / to search  |  ? to find key")
 
         # --- H. Capture overlay (Phase 5) ---
         if state._modal_state == 'CAPTURE':
@@ -659,11 +853,28 @@ def _draw_callback():
             blf.position(font_id, (rw - tw2) / 2, rh / 2 - 20, 0)
             blf.draw(font_id, sub)
 
+        # --- v0.9 Feature 5: Shortcut search overlay ---
+        if state._shortcut_search_active:
+            _draw_rect(shader_uniform, 0, 0, rw, rh, COL_CAPTURE_OVERLAY)
+            cap_font_size = max(14, int(unit_px * 0.5))
+            blf.size(font_id, cap_font_size)
+            blf.color(font_id, *COL_SHORTCUT_SEARCH_TEXT)
+            msg = "Press any key combination to find its binding..."
+            tw, th = blf.dimensions(font_id, msg)
+            blf.position(font_id, (rw - tw) / 2, rh / 2 + 10, 0)
+            blf.draw(font_id, msg)
+
+            blf.size(font_id, info_font_size)
+            blf.color(font_id, *COL_TEXT_DIM)
+            sub = "ESC to cancel"
+            tw2, th2 = blf.dimensions(font_id, sub)
+            blf.position(font_id, (rw - tw2) / 2, rh / 2 - 20, 0)
+            blf.draw(font_id, sub)
+
         # --- I. Conflict resolution overlay (Phase 5) ---
         if state._modal_state == 'CONFLICT':
             _draw_rect(shader_uniform, 0, 0, rw, rh, COL_CAPTURE_OVERLAY)
 
-            # Centered panel
             panel_w = min(500, rw * 0.7)
             panel_h = min(300, rh * 0.5)
             panel_x = (rw - panel_w) / 2
@@ -672,7 +883,6 @@ def _draw_callback():
             _draw_rect(shader_uniform, panel_x, panel_y, panel_w, panel_h, COL_CONFLICT_BG)
             _draw_rect_border(shader_uniform, panel_x, panel_y, panel_w, panel_h, COL_BORDER)
 
-            # Header
             hdr_size = max(14, int(unit_px * 0.4))
             blf.size(font_id, hdr_size)
             blf.color(font_id, *COL_CONFLICT_HEADER)
@@ -681,7 +891,6 @@ def _draw_callback():
             blf.position(font_id, panel_x + (panel_w - tw) / 2, panel_y + panel_h - 35, 0)
             blf.draw(font_id, hdr_text)
 
-            # Source binding info
             blf.size(font_id, info_font_size)
             blf.color(font_id, *colors['text'])
             src_kmi = state._conflict_data.get('source_kmi')
@@ -701,7 +910,6 @@ def _draw_callback():
                 blf.position(font_id, panel_x + 15, panel_y + panel_h - 60, 0)
                 blf.draw(font_id, src_text)
 
-            # Conflict list
             blf.color(font_id, *COL_TEXT_DIM)
             conflicts = state._conflict_data.get('conflicts', [])
             for ci, (ckm_name, ckmi) in enumerate(conflicts[:5]):
@@ -710,7 +918,6 @@ def _draw_callback():
                 blf.position(font_id, panel_x + 15, cy, 0)
                 blf.draw(font_id, conflict_line)
 
-            # Buttons
             btn_w = 100
             btn_h = 30
             btn_y = panel_y + 20
@@ -735,7 +942,6 @@ def _draw_callback():
 
         # --- J. GPU-drawn context menu (Phase 5 + Feature 5) ---
         if state._modal_state == 'MENU_OPEN' and state._gpu_menu_items:
-            # Background + border for entire menu
             if state._gpu_menu_items:
                 all_x = [item[2] for item in state._gpu_menu_items]
                 all_y = [item[3] for item in state._gpu_menu_items]
@@ -757,7 +963,6 @@ def _draw_callback():
                     mbind_idx, mis_header = 0, False
 
                 if mis_header:
-                    # Header: draw with COL_INFO_BG background, dimmer text
                     mcol = COL_INFO_BG
                     _draw_rect(shader_uniform, mx, my, mw, mh, mcol)
                     blf.size(font_id, info_font_size)
@@ -766,7 +971,6 @@ def _draw_callback():
                     blf.position(font_id, mx + 8, my + (mh - th) / 2, 0)
                     blf.draw(font_id, mlabel)
                 else:
-                    # Action: draw with hover highlight
                     mcol = COL_GPU_MENU_HOVER if mi_idx == state._gpu_menu_hovered else COL_GPU_MENU_BG
                     _draw_rect(shader_uniform, mx, my, mw, mh, mcol)
                     blf.size(font_id, info_font_size)

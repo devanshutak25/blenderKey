@@ -3,7 +3,7 @@ Keymap Visualizer – Addon Preferences
 """
 
 import bpy
-from bpy.props import StringProperty, EnumProperty, FloatVectorProperty
+from bpy.props import StringProperty, EnumProperty, FloatVectorProperty, BoolProperty
 from . import state
 
 
@@ -83,6 +83,22 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
         update=lambda self, ctx: state._invalidate_cache(),
     )
 
+    # v0.9: Category colors
+    enable_category_colors: BoolProperty(
+        name="Category Colors",
+        description="Color keys by operator category (Transform, Navigation, etc.)",
+        default=True,
+        update=lambda self, ctx: state._invalidate_cache(),
+    )
+
+    # v0.9: Presets directory
+    presets_directory: StringProperty(
+        name="Presets Folder",
+        description="Directory to store keymap presets",
+        subtype='DIR_PATH',
+        default="//keymap_presets/",
+    )
+
     def draw(self, context):
         layout = self.layout
 
@@ -106,3 +122,9 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
         row.prop(self, "col_panel_bg")
         row = box.row()
         row.prop(self, "col_key_bound")
+
+        # v0.9: Category colors and presets
+        box = layout.box()
+        box.label(text="Pro Features")
+        box.prop(self, "enable_category_colors")
+        box.prop(self, "presets_directory")

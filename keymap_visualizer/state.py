@@ -78,6 +78,38 @@ _resize_drag_start_scale = 1.0
 _bound_keys_cache = set()    # set of event_type strings with active bindings
 _bound_keys_dirty = True
 
+# v0.9 Feature 1: On-key command labels
+_key_labels_cache = {}       # {event_type: "Short Name"}
+_key_labels_dirty = True
+
+# v0.9 Feature 2: Real-time physical modifier reactivity
+_physical_modifiers = {'ctrl': False, 'shift': False, 'alt': False, 'oskey': False}
+_modifier_source = 'TOGGLE'  # 'TOGGLE' or 'PHYSICAL'
+
+# v0.9 Feature 3: Category color-coding
+_key_categories_cache = {}   # {event_type: "category_name"}
+_key_categories_dirty = True
+_category_colors_enabled = True
+
+# v0.9 Feature 4: Undo/redo for keymap changes
+_undo_stack = []    # list of [{'kmi': kmi_ref, 'before': {snapshot}}, ...]
+_redo_stack = []
+_undo_max = 50
+
+# v0.9 Feature 5: Shortcut search (reverse lookup)
+_shortcut_search_active = False
+
+# v0.9 Feature 6: Preset management
+_presets_list = []
+_active_preset_name = ""
+_presets_btn_rect = None
+_presets_hovered = False
+_preset_dropdown_open = False
+_preset_dropdown_rects = []
+_preset_dropdown_hovered = -1
+_preset_name_input_active = False
+_preset_name_text = ""
+
 # Feature 4: Editor/Mode filters
 _filter_space_type = 'ALL'
 _filter_mode = 'ALL'
@@ -97,7 +129,16 @@ _launch_retry_count = 0
 
 def _invalidate_cache():
     """Invalidate binding cache and mark batches dirty."""
-    global _bindings_key, _batch_dirty, _bound_keys_dirty
+    global _bindings_key, _batch_dirty, _bound_keys_dirty, _key_labels_dirty, _key_categories_dirty
     _bindings_key = None
     _batch_dirty = True
     _bound_keys_dirty = True
+    _key_labels_dirty = True
+    _key_categories_dirty = True
+
+
+def _get_effective_modifiers():
+    """Return active modifiers accounting for physical key state."""
+    if any(_physical_modifiers.values()):
+        return _physical_modifiers
+    return _active_modifiers

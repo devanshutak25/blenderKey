@@ -87,3 +87,20 @@ def _hit_test_filter_dropdown(mx, my):
         if x <= mx <= x + w and y <= my <= y + h:
             return i
     return -1
+
+
+def _hit_test_presets_button(mx, my):
+    """Returns True if click is on presets button."""
+    if state._presets_btn_rect is None:
+        return False
+    x, y, w, h = state._presets_btn_rect
+    return x <= mx <= x + w and y <= my <= y + h
+
+
+def _hit_test_preset_dropdown(mx, my):
+    """Returns index into state._preset_dropdown_rects or -1."""
+    for i, item in enumerate(state._preset_dropdown_rects):
+        label, action, x, y, w, h = item[:6]
+        if x <= mx <= x + w and y <= my <= y + h:
+            return i
+    return -1

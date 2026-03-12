@@ -9,14 +9,37 @@ from .hit_testing import (
     _hit_test_conflict_buttons, _hit_test_gpu_menu,
     _hit_test_close, _hit_test_resize,
     _hit_test_filter_buttons, _hit_test_filter_dropdown,
+    _hit_test_presets_button, _hit_test_preset_dropdown,
 )
 from .keymap_data import (
     _get_bindings_for_key, _find_conflicts, _apply_rebind,
     _reset_kmi_to_default, _update_search_filter,
+    _push_undo, _do_undo, _do_redo,
 )
 from .export import _do_export
-from .drawing import _build_gpu_menu, _build_filter_dropdown
+from .drawing import _build_gpu_menu, _build_filter_dropdown, _build_preset_dropdown
 from .constants import _CAPTURABLE_KEYS
+
+
+# ---------------------------------------------------------------------------
+# v0.9 Feature 2: Physical modifier reactivity
+# ---------------------------------------------------------------------------
+def _update_physical_modifiers(event):
+    """Update physical modifier state from event. Returns True if changed."""
+    changed = False
+    for attr, key in [('ctrl', 'ctrl'), ('shift', 'shift'), ('alt', 'alt'), ('oskey', 'oskey')]:
+        val = getattr(event, attr, False)
+        if val != state._physical_modifiers[key]:
+            state._physical_modifiers[key] = val
+            changed = True
+    if changed:
+        new_source = 'PHYSICAL' if any(state._physical_modifiers.values()) else 'TOGGLE'
+        if new_source != state._modifier_source:
+            state._modifier_source = new_source
+        state._invalidate_cache()
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+    return changed
 
 
 def _handle_resize_drag(context, event):
@@ -57,6 +80,31 @@ def _handle_idle(context, event):
     if state._resize_dragging:
         return _handle_resize_drag(context, event)
 
+    # v0.9 Feature 2: Update physical modifiers on every event
+    _update_physical_modifiers(event)
+
+    # v0.9 Feature 4: Undo/redo (before other key handling)
+    if event.type == 'Z' and event.value == 'PRESS' and event.ctrl and not event.shift:
+        if _do_undo():
+            state._invalidate_cache()
+            if state._target_area is not None:
+                state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.type == 'Z' and event.value == 'PRESS' and event.ctrl and event.shift:
+        if _do_redo():
+            state._invalidate_cache()
+            if state._target_area is not None:
+                state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    # v0.9 Feature 5: Shortcut search activation (Shift+/)
+    if event.type == 'SLASH' and event.value == 'PRESS' and event.shift:
+        state._shortcut_search_active = True
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
     if event.type == 'MOUSEMOVE':
         mx, my = event.mouse_region_x, event.mouse_region_y
         new_hover = _hit_test_key(mx, my)
@@ -64,6 +112,7 @@ def _handle_idle(context, event):
         new_close_hover = _hit_test_close(mx, my)
         new_resize_hover = _hit_test_resize(mx, my)
         new_filter_btn = _hit_test_filter_buttons(mx, my)
+        new_presets_hover = _hit_test_presets_button(mx, my)
 
         changed = False
         if new_hover != state._hovered_key_index:
@@ -87,6 +136,10 @@ def _handle_idle(context, event):
             changed = True
         if new_mode_hover != state._filter_mode_hovered:
             state._filter_mode_hovered = new_mode_hover
+            changed = True
+        # Presets button hover
+        if new_presets_hover != state._presets_hovered:
+            state._presets_hovered = new_presets_hover
             changed = True
 
         if changed and state._target_area is not None:
@@ -116,6 +169,16 @@ def _handle_idle(context, event):
             _build_filter_dropdown(filter_hit, btn_rect, region_w, region_h)
             state._filter_dropdown_open = filter_hit
             state._modal_state = 'FILTER_DROPDOWN'
+            if state._target_area is not None:
+                state._target_area.tag_redraw()
+            return {'RUNNING_MODAL'}
+
+        # v0.9 Feature 6: Check presets button
+        if _hit_test_presets_button(mx, my):
+            region_w, region_h = state._cached_region_size
+            _build_preset_dropdown(state._presets_btn_rect, region_w, region_h)
+            state._preset_dropdown_open = True
+            state._modal_state = 'PRESET_DROPDOWN'
             if state._target_area is not None:
                 state._target_area.tag_redraw()
             return {'RUNNING_MODAL'}
@@ -173,8 +236,8 @@ def _handle_idle(context, event):
                     state._target_area.tag_redraw()
             return {'RUNNING_MODAL'}
 
-    # Search activation: / key or Ctrl+F
-    if event.type == 'SLASH' and event.value == 'PRESS' and not event.ctrl:
+    # Search activation: / key or Ctrl+F (but not Shift+/ which is shortcut search)
+    if event.type == 'SLASH' and event.value == 'PRESS' and not event.ctrl and not event.shift:
         state._search_active = True
         state._search_text = ''
         _update_search_filter()
@@ -235,13 +298,16 @@ def _handle_menu_open(context, event):
                 state._modal_state = 'CAPTURE'
                 state._menu_context['pending_action'] = 'REBIND'
             elif action == 'UNBIND' and kmi:
+                _push_undo([kmi])  # v0.9: undo support
                 kmi.active = False
                 state._invalidate_cache()
                 state._modal_state = 'IDLE'
             elif action == 'RESET' and kmi and km_name:
+                _push_undo([kmi])  # v0.9: undo support
                 _reset_kmi_to_default(kmi, km_name)
                 state._modal_state = 'IDLE'
             elif action == 'TOGGLE' and kmi:
+                _push_undo([kmi])  # v0.9: undo support
                 kmi.active = not kmi.active
                 state._invalidate_cache()
                 state._modal_state = 'IDLE'
@@ -311,6 +377,7 @@ def _handle_capture(context, event):
                                     exclude_kmi=kmi)
         if not conflicts:
             # No conflicts — apply directly
+            _push_undo([kmi])  # v0.9: undo support
             _apply_rebind(kmi, new_type, new_ctrl, new_shift, new_alt, new_oskey)
             state._modal_state = 'IDLE'
             state._menu_context.clear()
@@ -360,6 +427,9 @@ def _handle_conflict(context, event):
             conflicts = state._conflict_data.get('conflicts', [])
 
             if action == 'SWAP' and src_kmi:
+                # v0.9: undo support — snapshot all affected KMIs
+                _push_undo([src_kmi] + [ckmi for _, ckmi in conflicts])
+
                 # Save source's current binding
                 old_type = src_kmi.type
                 old_ctrl = src_kmi.ctrl
@@ -375,6 +445,9 @@ def _handle_conflict(context, event):
                     _apply_rebind(ckmi, old_type, old_ctrl, old_shift, old_alt, old_oskey)
 
             elif action == 'OVERRIDE' and src_kmi:
+                # v0.9: undo support
+                _push_undo([src_kmi] + [ckmi for _, ckmi in conflicts])
+
                 # Deactivate conflicting KMIs
                 for ckm_name, ckmi in conflicts:
                     ckmi.active = False
@@ -506,3 +579,176 @@ def _handle_search(context, event):
         return {'RUNNING_MODAL'}
 
     return None  # Not handled by search
+
+
+# ---------------------------------------------------------------------------
+# v0.9 Feature 5: Shortcut search handler
+# ---------------------------------------------------------------------------
+def _handle_shortcut_search(context, event):
+    """Handle events in shortcut search mode. Returns modal return set or None."""
+    if not state._shortcut_search_active:
+        return None
+
+    if event.type == 'ESC' and event.value == 'PRESS':
+        state._shortcut_search_active = False
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.value == 'PRESS' and event.type in _CAPTURABLE_KEYS:
+        # Find key index by matching event.type against key_rects
+        found_idx = -1
+        for i, kr in enumerate(state._key_rects):
+            if kr.event_type == event.type:
+                found_idx = i
+                break
+
+        if found_idx >= 0:
+            state._selected_key_index = found_idx
+            # Set modifier toggles from the pressed modifiers
+            state._active_modifiers['ctrl'] = event.ctrl
+            state._active_modifiers['shift'] = event.shift
+            state._active_modifiers['alt'] = event.alt
+            state._active_modifiers['oskey'] = event.oskey
+            state._invalidate_cache()
+
+        state._shortcut_search_active = False
+        state._batch_dirty = True
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    return {'RUNNING_MODAL'}
+
+
+# ---------------------------------------------------------------------------
+# v0.9 Feature 6: Preset dropdown handler
+# ---------------------------------------------------------------------------
+def _handle_preset_dropdown(context, event):
+    """Handle events while the preset dropdown is open."""
+    if event.type == 'MOUSEMOVE':
+        new_hover = _hit_test_preset_dropdown(event.mouse_region_x, event.mouse_region_y)
+        if new_hover != state._preset_dropdown_hovered:
+            state._preset_dropdown_hovered = new_hover
+            if state._target_area is not None:
+                state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+        mx, my = event.mouse_region_x, event.mouse_region_y
+        dd_hit = _hit_test_preset_dropdown(mx, my)
+
+        if dd_hit >= 0:
+            item = state._preset_dropdown_rects[dd_hit]
+            label, action = item[0], item[1]
+
+            if action == 'SAVE_AS':
+                # Enter name input mode
+                state._preset_name_input_active = True
+                state._preset_name_text = ''
+                state._preset_dropdown_open = False
+                state._preset_dropdown_rects = []
+                state._preset_dropdown_hovered = -1
+                state._modal_state = 'IDLE'
+                if state._target_area is not None:
+                    state._target_area.tag_redraw()
+                return {'RUNNING_MODAL'}
+            elif action == 'DELETE':
+                # Delete current preset
+                from .presets import _delete_preset
+                if state._active_preset_name:
+                    success, msg = _delete_preset(state._active_preset_name)
+                    print(f"[Keymap Visualizer] {msg}")
+                    if success:
+                        state._active_preset_name = ""
+            elif action.startswith('LOAD:'):
+                preset_name = action[5:]
+                from .presets import _load_preset
+                # Push full undo snapshot before loading
+                _push_undo_all_keymaps()
+                success, msg = _load_preset(preset_name)
+                print(f"[Keymap Visualizer] {msg}")
+
+        # Close dropdown
+        state._preset_dropdown_open = False
+        state._preset_dropdown_rects = []
+        state._preset_dropdown_hovered = -1
+        state._modal_state = 'IDLE'
+        state._batch_dirty = True
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.type in ('ESC', 'RIGHTMOUSE') and event.value == 'PRESS':
+        state._preset_dropdown_open = False
+        state._preset_dropdown_rects = []
+        state._preset_dropdown_hovered = -1
+        state._modal_state = 'IDLE'
+        state._batch_dirty = True
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    return {'RUNNING_MODAL'}
+
+
+def _handle_preset_name_input(context, event):
+    """Handle text input for preset name. Returns modal return set or None."""
+    if not state._preset_name_input_active:
+        return None
+
+    if event.type == 'ESC' and event.value == 'PRESS':
+        state._preset_name_input_active = False
+        state._preset_name_text = ''
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.type == 'RET' and event.value == 'PRESS':
+        name = state._preset_name_text.strip()
+        if name:
+            from .presets import _save_preset
+            success, msg = _save_preset(name)
+            print(f"[Keymap Visualizer] {msg}")
+            if success:
+                state._active_preset_name = name
+        state._preset_name_input_active = False
+        state._preset_name_text = ''
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.type == 'BACK_SPACE' and event.value == 'PRESS':
+        if state._preset_name_text:
+            state._preset_name_text = state._preset_name_text[:-1]
+            if state._target_area is not None:
+                state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.value == 'PRESS' and event.unicode and event.unicode.isprintable():
+        state._preset_name_text += event.unicode
+        if state._target_area is not None:
+            state._target_area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    return {'RUNNING_MODAL'}
+
+
+def _push_undo_all_keymaps():
+    """Push a partial undo snapshot (first few KMIs from each keymap) before preset load."""
+    import bpy
+    wm = bpy.context.window_manager
+    kc = wm.keyconfigs.user
+    if kc is None:
+        return
+    # Collect first KMI from each keymap as a representative sample
+    kmis = []
+    for km in kc.keymaps:
+        for kmi in km.keymap_items:
+            kmis.append(kmi)
+            if len(kmis) >= 50:
+                break
+        if len(kmis) >= 50:
+            break
+    if kmis:
+        _push_undo(kmis)
