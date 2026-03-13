@@ -103,27 +103,27 @@ def _compute_keyboard_layout(region_width, region_height):
                 state._key_rects.append(KeyRect(label, event_type, x, y, w, h))
                 x += width_u * unit_px
 
-    # --- Toolbar row above keyboard (Export + Presets, right-aligned, compact) ---
+    # --- Toolbar row above keyboard (Export + Presets + Close, right-aligned) ---
     toolbar_y = start_y + len(KEYBOARD_ROWS) * unit_px + unit_px * 0.3
     toolbar_h = unit_px * 0.55
     btn_gap = unit_px * 0.2
     export_btn_w = unit_px * 1.6
     presets_btn_w = unit_px * 1.6
+    close_btn_size = toolbar_h
 
     all_max_x = max(kr.x + kr.w for kr in state._key_rects)
-    total_toolbar_w = export_btn_w + presets_btn_w + btn_gap
+    total_toolbar_w = export_btn_w + btn_gap + presets_btn_w + btn_gap + close_btn_size
     toolbar_x = all_max_x - total_toolbar_w
 
     x = toolbar_x
     state._export_button_rect = (x, toolbar_y, export_btn_w, toolbar_h)
     x += export_btn_w + btn_gap
     state._presets_btn_rect = (x, toolbar_y, presets_btn_w, toolbar_h)
+    x += presets_btn_w + btn_gap
+    state._close_button_rect = (x, toolbar_y, close_btn_size, close_btn_size)
 
-    # --- Feature 1: Close button (top-right of keyboard frame) ---
-    all_max_y = toolbar_y + toolbar_h  # top of toolbar
-    pad = max(10, int(unit_px * 0.25))  # M5: scaled padding (matches drawing.py)
-    btn_size = unit_px * 0.6
-    state._close_button_rect = (all_max_x + pad - btn_size, all_max_y + pad - btn_size, btn_size, btn_size)
+    all_max_y = toolbar_y + toolbar_h
+    pad = max(10, int(unit_px * 0.25))
 
     # --- Feature 2: Resize handle (bottom-right of keyboard frame) ---
     all_min_y = min(kr.y for kr in state._key_rects)
