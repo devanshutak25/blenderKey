@@ -28,10 +28,11 @@ from .constants import (
 # Font loading: use bfont.ttf for better Unicode glyph support
 # ---------------------------------------------------------------------------
 _blender_font_id = 0
+_condensed_font_id = 0
 
 
 def _ensure_font_loaded():
-    global _blender_font_id
+    global _blender_font_id, _condensed_font_id
     if _blender_font_id != 0:
         return _blender_font_id
     bfont_dir = os.path.join(bpy.utils.resource_path('LOCAL'), "datafiles", "fonts")
@@ -42,7 +43,18 @@ def _ensure_font_loaded():
         loaded = blf.load(bfont_path)
         if loaded != -1:
             _blender_font_id = loaded
+    # Load condensed font for command labels
+    condensed_path = os.path.join(os.path.dirname(__file__), "fonts", "RobotoCondensed-Regular.ttf")
+    if os.path.exists(condensed_path):
+        loaded = blf.load(condensed_path)
+        if loaded != -1:
+            _condensed_font_id = loaded
     return _blender_font_id
+
+
+def _get_condensed_font():
+    """Return condensed font ID, falling back to main font."""
+    return _condensed_font_id if _condensed_font_id != 0 else _blender_font_id
 from .keymap_data import (
     _get_bindings_for_key, _get_all_bindings_for_key, _compute_bound_keys,
     _compute_key_labels, _compute_key_categories, _compute_key_editor_icons,
@@ -678,17 +690,18 @@ def _draw_callback():
                     blf.position(font_id, kr.x + 3, kr.y + kr.h - font_size - 2, 0)
                     blf.draw(font_id, kr.label)
 
-                    # Command label (smaller, below)
-                    blf.size(font_id, cmd_font_size)
-                    blf.color(font_id, *colors['text_dim'])
+                    # Command label (smaller, condensed font)
+                    cfont = _get_condensed_font()
+                    blf.size(cfont, cmd_font_size)
+                    blf.color(cfont, *colors['text_dim'])
                     # Truncate if too wide
                     display_cmd = cmd_label
-                    tw, th = blf.dimensions(font_id, display_cmd)
+                    tw, th = blf.dimensions(cfont, display_cmd)
                     while tw > kr.w - 6 and len(display_cmd) > 3:
                         display_cmd = display_cmd[:-4] + "..."
-                        tw, th = blf.dimensions(font_id, display_cmd)
-                    blf.position(font_id, kr.x + 3, kr.y + kr.h * 0.15, 0)
-                    blf.draw(font_id, display_cmd)
+                        tw, th = blf.dimensions(cfont, display_cmd)
+                    blf.position(cfont, kr.x + 3, kr.y + kr.h * 0.15, 0)
+                    blf.draw(cfont, display_cmd)
                 else:
                     # Single centered label (original style)
                     blf.size(font_id, font_size)
