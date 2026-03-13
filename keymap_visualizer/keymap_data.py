@@ -153,6 +153,44 @@ def _get_all_bindings_for_key(event_type):
     return result
 
 
+def _group_bindings(bindings, n_matching):
+    """Group flat binding list by (op_id, mod_str). Returns list of group tuples.
+
+    Each group: (group_key, human_name, mod_str, entries, best_color_rank)
+      - group_key: (op_id, mod_str) for expand/collapse tracking
+      - entries: list of (orig_index, binding_tuple) preserving original order
+      - best_color_rank: 0=matching, 1=non_matching, 2=inactive (for header color)
+    """
+    from collections import OrderedDict
+    groups_dict = OrderedDict()
+    for i, binding in enumerate(bindings):
+        op_id = binding[1]
+        mod_str = binding[2]
+        key = (op_id, mod_str)
+        if key not in groups_dict:
+            groups_dict[key] = []
+        groups_dict[key].append((i, binding))
+
+    result = []
+    for group_key, entries in groups_dict.items():
+        op_id, mod_str = group_key
+        human_name = _humanize_op_id(op_id)
+        # Compute best color rank: 0=matching, 1=non_matching_active, 2=inactive
+        best_rank = 2
+        for orig_idx, b in entries:
+            is_active = b[4]
+            if not is_active:
+                rank = 2
+            elif orig_idx < n_matching:
+                rank = 0
+            else:
+                rank = 1
+            if rank < best_rank:
+                best_rank = rank
+        result.append((group_key, human_name, mod_str, entries, best_rank))
+    return result
+
+
 def _find_conflicts(event_type, ctrl, shift, alt, oskey, exclude_kmi=None):
     """Find active KMIs matching key+modifiers. Returns list of (km_name, kmi)."""
     conflicts = []

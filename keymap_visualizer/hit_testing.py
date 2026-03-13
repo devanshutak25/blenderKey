@@ -92,6 +92,16 @@ def _hit_test_mode_list(mx, my):
                                    state._filter_mode_list_rects, state._filter_mode_scroll)
 
 
+def _hit_test_info_panel_group(mx, my):
+    """Returns group_key if click is on a collapsible group header, else None."""
+    if not state._info_panel_rect or not _point_in_rect(mx, my, state._info_panel_rect):
+        return None
+    for group_key, x, y, w, h in state._info_panel_group_header_rects:
+        if x <= mx <= x + w and y <= my <= y + h:
+            return group_key
+    return None
+
+
 def _hit_test_presets_button(mx, my):
     """Returns True if click is on presets button."""
     return state._presets_btn_rect is not None and _point_in_rect(mx, my, state._presets_btn_rect)

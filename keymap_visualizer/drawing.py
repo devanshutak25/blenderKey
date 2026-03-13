@@ -85,7 +85,7 @@ def _get_condensed_font():
 from .keymap_data import (
     _get_bindings_for_key, _get_all_bindings_for_key, _compute_bound_keys,
     _compute_key_labels, _compute_key_categories, _compute_key_editor_icons,
-    _compute_key_modifier_badges, _humanize_op_id,
+    _compute_key_modifier_badges, _humanize_op_id, _group_bindings,
 )
 from .icons import (
     _load_icons, get_editor_icon, get_mode_icon, get_km_icon,
@@ -1236,12 +1236,21 @@ def _draw_callback():
 
             if bindings:
                 # Single-column layout with scrolling (Issues #2, #3, #12)
+                # Group bindings by (op_id, mod_str) for collapsible display
+                groups = _group_bindings(bindings, n_matching)
                 line_h = info_font_size + 3
                 content_top = sep_y - sp3
                 content_bottom = info_y + sp3
                 visible_h = content_top - content_bottom
                 max_visible_rows = max(1, int(visible_h / line_h))
-                total_rows = len(bindings)
+
+                # Count total visible rows (depends on expand state)
+                total_rows = 0
+                for group_key, human_name, mod_str, entries, best_rank in groups:
+                    total_rows += 1  # header row
+                    if len(entries) > 1 and group_key in state._info_panel_expanded_groups:
+                        total_rows += len(entries)  # sub-rows
+
                 info_max_scroll = max(0, (total_rows * line_h) - visible_h)
                 state._info_panel_max_scroll = info_max_scroll
                 # Clamp scroll
@@ -1252,57 +1261,125 @@ def _draw_callback():
 
                 bind_icon_size = int(info_font_size * 1.0)
                 cx = info_x + sp5
+                indent = int(info_font_size * 1.2)
 
-                # Enable scissor/clip by only drawing visible rows
                 scroll_offset = state._info_panel_scroll
-                first_visible = max(0, int(scroll_offset / line_h))
-                last_visible = min(total_rows, first_visible + max_visible_rows + 2)
 
-                for j in range(first_visible, last_visible):
-                    ly = content_top - (j + 1) * line_h + scroll_offset
-                    if ly > content_top or ly + line_h < content_bottom:
-                        continue
+                # Clear header rects for this frame
+                state._info_panel_group_header_rects = []
 
-                    km_name, op_id, mod_str, kmi, is_active = bindings[j][:5]
-                    km_space_type = bindings[j][5] if len(bindings[j]) > 5 else ''
-                    prefix = f"[{mod_str}] " if mod_str else ""
-                    active_tag = "" if is_active else "[off] "
-                    human_name = _humanize_op_id(op_id)
-                    line_text = f"{active_tag}{prefix}{human_name}"
+                row = 0
+                for group_key, human_name, mod_str, entries, best_rank in groups:
+                    ly = content_top - (row + 1) * line_h + scroll_offset
+                    row += 1
 
-                    if not is_active:
-                        blf.color(font_id, *colors['text_inactive'])
-                    elif j < n_matching:
-                        blf.color(font_id, *colors['text'])
+                    if len(entries) == 1:
+                        # Single entry — render like the old flat line
+                        if ly <= content_top and ly + line_h >= content_bottom:
+                            orig_idx, b = entries[0]
+                            km_name, op_id, b_mod_str, kmi, is_active = b[:5]
+                            km_space_type = b[5] if len(b) > 5 else ''
+                            prefix = f"[{b_mod_str}] " if b_mod_str else ""
+                            active_tag = "" if is_active else "[off] "
+                            line_text = f"{active_tag}{prefix}{human_name}"
+
+                            if not is_active:
+                                blf.color(font_id, *colors['text_inactive'])
+                            elif orig_idx < n_matching:
+                                blf.color(font_id, *colors['text'])
+                            else:
+                                blf.color(font_id, *colors['text_dim'])
+
+                            suffix = f" | {km_name}"
+                            suffix_w, _ = blf.dimensions(font_id, suffix)
+                            main_max_w = max(avail_text_w * 0.4, avail_text_w - suffix_w - bind_icon_size - sp5)
+                            display_text, tw_main, _ = _truncate_text(font_id, line_text, main_max_w)
+
+                            blf.position(font_id, cx, ly, 0)
+                            blf.draw(font_id, display_text)
+
+                            icon_x_pos = cx + tw_main + sp2
+                            bind_icon_tex = get_km_icon(km_space_type)
+                            if bind_icon_tex:
+                                _draw_icon(bind_icon_tex, icon_x_pos, ly - sp1, bind_icon_size)
+                                icon_x_pos += bind_icon_size + sp2
+
+                            suffix = f" | {km_name}"
+                            remaining_w = avail_text_w - (icon_x_pos - cx)
+                            if remaining_w > sp6:
+                                blf.color(font_id, *colors['text_dim'])
+                                display_suf, tw_suf, _ = _truncate_text(font_id, suffix, remaining_w)
+                                blf.position(font_id, icon_x_pos, ly, 0)
+                                blf.draw(font_id, display_suf)
                     else:
-                        blf.color(font_id, *colors['text_dim'])
+                        # Multi-entry collapsible group
+                        is_expanded = group_key in state._info_panel_expanded_groups
 
-                    # Measure and truncate main text — dynamic allocation:
-                    # measure suffix first, give remainder to main text
-                    suffix = f" | {km_name}"
-                    suffix_w, _ = blf.dimensions(font_id, suffix)
-                    main_max_w = max(avail_text_w * 0.4, avail_text_w - suffix_w - bind_icon_size - sp5)
-                    display_text, tw_main, _ = _truncate_text(font_id, line_text, main_max_w)
+                        if ly <= content_top and ly + line_h >= content_bottom:
+                            # Draw header color based on best_rank
+                            if best_rank == 0:
+                                blf.color(font_id, *colors['text'])
+                            elif best_rank == 1:
+                                blf.color(font_id, *colors['text_dim'])
+                            else:
+                                blf.color(font_id, *colors['text_inactive'])
 
-                    # Draw main text
-                    blf.position(font_id, cx, ly, 0)
-                    blf.draw(font_id, display_text)
+                            arrow = "\u25BE" if is_expanded else "\u25B8"
+                            prefix = f"[{mod_str}] " if mod_str else ""
+                            if is_expanded:
+                                header_text = f"{arrow} {prefix}{human_name}"
+                            else:
+                                header_text = f"{arrow} {prefix}{human_name}"
+                            count_text = f"  {len(entries)} editors"
 
-                    # Icon between main text and editor name (Issue #11)
-                    icon_x_pos = cx + tw_main + sp2
-                    bind_icon_tex = get_km_icon(km_space_type)
-                    if bind_icon_tex:
-                        _draw_icon(bind_icon_tex, icon_x_pos, ly - sp1, bind_icon_size)
-                        icon_x_pos += bind_icon_size + sp2
+                            main_max_w = avail_text_w - blf.dimensions(font_id, count_text)[0] - sp3
+                            display_hdr, tw_hdr, _ = _truncate_text(font_id, header_text, max(avail_text_w * 0.5, main_max_w))
 
-                    # Editor/keymap name suffix, truncated to fit (Issue #1)
-                    suffix = f" | {km_name}"
-                    remaining_w = avail_text_w - (icon_x_pos - cx)
-                    if remaining_w > sp6:
-                        blf.color(font_id, *colors['text_dim'])
-                        display_suf, tw_suf, _ = _truncate_text(font_id, suffix, remaining_w)
-                        blf.position(font_id, icon_x_pos, ly, 0)
-                        blf.draw(font_id, display_suf)
+                            blf.position(font_id, cx, ly, 0)
+                            blf.draw(font_id, display_hdr)
+
+                            if not is_expanded:
+                                blf.color(font_id, *colors['text_dim'])
+                                blf.position(font_id, cx + tw_hdr, ly, 0)
+                                blf.draw(font_id, count_text)
+
+                            # Store rect for click detection
+                            state._info_panel_group_header_rects.append(
+                                (group_key, cx, ly, avail_text_w, line_h)
+                            )
+
+                        if is_expanded:
+                            for orig_idx, b in entries:
+                                ly_sub = content_top - (row + 1) * line_h + scroll_offset
+                                row += 1
+
+                                if ly_sub > content_top or ly_sub + line_h < content_bottom:
+                                    continue
+
+                                km_name, op_id, b_mod_str, kmi, is_active = b[:5]
+                                km_space_type = b[5] if len(b) > 5 else ''
+                                active_tag = "[off] " if not is_active else ""
+
+                                if not is_active:
+                                    blf.color(font_id, *colors['text_inactive'])
+                                elif orig_idx < n_matching:
+                                    blf.color(font_id, *colors['text'])
+                                else:
+                                    blf.color(font_id, *colors['text_dim'])
+
+                                sub_text = f"\u00B7 {active_tag}{km_name}"
+                                sub_max_w = avail_text_w - indent
+                                display_sub, tw_sub, _ = _truncate_text(font_id, sub_text, sub_max_w)
+
+                                # Draw icon then text
+                                sub_x = cx + indent
+                                bind_icon_tex = get_km_icon(km_space_type)
+                                if bind_icon_tex:
+                                    _draw_icon(bind_icon_tex, sub_x, ly_sub - sp1, bind_icon_size)
+                                    sub_x += bind_icon_size + sp2
+
+                                blf.position(font_id, sub_x, ly_sub, 0)
+                                blf.draw(font_id, display_sub)
 
                 # Scrollbar (Issue #3)
                 if has_scrollbar:

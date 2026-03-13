@@ -136,6 +136,10 @@ _info_panel_scroll = 0              # scroll offset for info panel bindings
 _info_panel_rect = None             # (x, y, w, h) for hit testing
 _info_panel_max_scroll = 0          # set during drawing, read by handlers
 
+# Collapsible grouped bindings
+_info_panel_expanded_groups = set()       # set of (op_id, mod_str) keys currently expanded
+_info_panel_group_header_rects = []       # [(group_key, x, y, w, h), ...] rebuilt each frame
+
 # Keyboard navigation (C2)
 _nav_focus = 'KEYS'  # 'KEYS', 'EDITOR_LIST', 'MODE_LIST', 'INFO_PANEL'
 _nav_key_index = 0   # keyboard-navigated key index (separate from mouse hover)
@@ -186,6 +190,7 @@ def _reset_all_state():
     global _filter_editor_scroll, _filter_mode_scroll
     global _filter_scroll_drag_target, _filter_scroll_drag_start_y, _filter_scroll_drag_start_offset
     global _info_panel_scroll, _info_panel_rect, _info_panel_max_scroll
+    global _info_panel_expanded_groups, _info_panel_group_header_rects
     global _key_modifier_badge_cache, _key_modifier_badge_dirty
     global _launch_retry_count
     global _nav_focus, _nav_key_index
@@ -270,6 +275,8 @@ def _reset_all_state():
     _info_panel_scroll = 0
     _info_panel_rect = None
     _info_panel_max_scroll = 0
+    _info_panel_expanded_groups = set()
+    _info_panel_group_header_rects = []
     _key_modifier_badge_cache = {}
     _key_modifier_badge_dirty = True
     _nav_focus = 'KEYS'

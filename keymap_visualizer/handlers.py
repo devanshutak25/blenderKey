@@ -10,6 +10,7 @@ from .hit_testing import (
     _hit_test_close, _hit_test_resize,
     _hit_test_editor_list, _hit_test_mode_list,
     _hit_test_presets_button, _hit_test_preset_dropdown,
+    _hit_test_info_panel_group,
 )
 from .keymap_data import (
     _get_bindings_for_key, _find_conflicts, _apply_rebind,
@@ -366,6 +367,16 @@ def _handle_idle(context, event):
             _toggle_filter_item(state._filter_modes, item[1])
             return {'RUNNING_MODAL'}
 
+        # Check info panel group header click
+        group_key = _hit_test_info_panel_group(mx, my)
+        if group_key is not None:
+            if group_key in state._info_panel_expanded_groups:
+                state._info_panel_expanded_groups.discard(group_key)
+            else:
+                state._info_panel_expanded_groups.add(group_key)
+            _tag_redraw()
+            return {'RUNNING_MODAL'}
+
         # v0.9 Feature 6: Check presets button
         if _hit_test_presets_button(mx, my):
             region_w, region_h = state._cached_region_size
@@ -400,6 +411,7 @@ def _handle_idle(context, event):
             else:
                 state._selected_key_index = key_hit
             state._info_panel_scroll = 0  # Reset scroll on key change
+            state._info_panel_expanded_groups.clear()
             state._batch_dirty = True
             _tag_redraw()
         return {'RUNNING_MODAL'}
@@ -513,6 +525,7 @@ def _handle_idle(context, event):
                 else:
                     state._selected_key_index = idx
                 state._info_panel_scroll = 0
+                state._info_panel_expanded_groups.clear()
                 state._batch_dirty = True
                 _tag_redraw()
             return {'RUNNING_MODAL'}
