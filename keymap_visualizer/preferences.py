@@ -15,8 +15,49 @@ def _invalidate(self, ctx):
     state._invalidate_cache()
 
 
+def _invalidate_layout(self, ctx):
+    """Force full relayout when keyboard layout preferences change."""
+    state._cached_region_size = (0, 0)
+    state._invalidate_cache()
+
+
 class KeymapVizPreferences(bpy.types.AddonPreferences):
     bl_idname = "keymap_visualizer"
+
+    # --- Keyboard Layout ---
+    keyboard_logical_layout: EnumProperty(
+        name="Keyboard Layout",
+        items=[
+            ('AUTO', "Auto-Detect", "Detect from OS"),
+            ('QWERTY', "QWERTY (US)", ""),
+            ('AZERTY', "AZERTY (French)", ""),
+            ('QWERTZ', "QWERTZ (German)", ""),
+            ('DVORAK', "Dvorak", ""),
+            ('COLEMAK', "Colemak", ""),
+            ('NORDIC', "Nordic (DK/SE/NO)", ""),
+        ],
+        default='AUTO',
+        update=_invalidate_layout,
+    )
+    keyboard_form_factor: EnumProperty(
+        name="Form Factor",
+        items=[('ANSI', "ANSI", ""), ('ISO', "ISO", "")],
+        default='ANSI',
+        update=_invalidate_layout,
+    )
+    keyboard_physical_size: EnumProperty(
+        name="Keyboard Size",
+        items=[
+            ('100', "Full Size (100%)", ""),
+            ('96', "Compact Full (96%)", ""),
+            ('80', "TKL (80%)", ""),
+            ('75', "75%", ""),
+            ('65', "65%", ""),
+            ('60', "60%", ""),
+        ],
+        default='100',
+        update=_invalidate_layout,
+    )
 
     # --- Export ---
     export_path: StringProperty(
@@ -304,6 +345,14 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
 
     def draw(self, context):
         layout = self.layout
+
+        # Keyboard Layout
+        box = layout.box()
+        box.label(text="Keyboard Layout")
+        box.prop(self, "keyboard_logical_layout")
+        row = box.row()
+        row.prop(self, "keyboard_form_factor")
+        row.prop(self, "keyboard_physical_size")
 
         # Export settings
         box = layout.box()

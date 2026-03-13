@@ -64,7 +64,9 @@
       "Bash(cd \"G:\\\\Personal\\\\blenderKey\" && python -c \"import py_compile; py_compile.compile\\('keymap_visualizer/drawing.py', doraise=True\\); py_compile.compile\\('keymap_visualizer/layout.py', doraise=True\\); py_compile.compile\\('keymap_visualizer/handlers.py', doraise=True\\); py_compile.compile\\('keymap_visualizer/state.py', doraise=True\\); print\\('All OK'\\)\")",
       "Bash(cd \"G:\\\\Personal\\\\blenderKey\" && python -c \"import py_compile; py_compile.compile\\('keymap_visualizer/drawing.py', doraise=True\\); py_compile.compile\\('keymap_visualizer/layout.py', doraise=True\\); print\\('OK'\\)\")",
       "Bash(grep -n \"_key_editor_icons_cache\" keymap_visualizer/*.py)",
-      "Bash(cd \"G:\\\\Personal\\\\blenderKey\" && python -c \"import ast; [ast.parse\\(open\\(f'keymap_visualizer/{f}'\\).read\\(\\)\\) for f in ['state.py', 'keymap_data.py', 'hit_testing.py', 'handlers.py', 'drawing.py']]; print\\('All files parse OK'\\)\")"
+      "Bash(cd \"G:\\\\Personal\\\\blenderKey\" && python -c \"import ast; [ast.parse\\(open\\(f'keymap_visualizer/{f}'\\).read\\(\\)\\) for f in ['state.py', 'keymap_data.py', 'hit_testing.py', 'handlers.py', 'drawing.py']]; print\\('All files parse OK'\\)\")",
+      "Bash(grep -n \"def.*key\\\\|def.*layout\\\\|def.*map\" /g/Personal/blenderKey/keymap_visualizer/*.py | grep -i \"key\\\\|layout\\\\|map\")",
+      "Bash(cd \"G:\\\\Personal\\\\blenderKey\" && python -c \"import ast; ast.parse\\(open\\('keymap_visualizer/keyboards.py'\\).read\\(\\)\\); print\\('keyboards.py OK'\\)\" && python -c \"import ast; ast.parse\\(open\\('keymap_visualizer/layout.py'\\).read\\(\\)\\); print\\('layout.py OK'\\)\" && python -c \"import ast; ast.parse\\(open\\('keymap_visualizer/constants.py'\\).read\\(\\)\\); print\\('constants.py OK'\\)\" && python -c \"import ast; ast.parse\\(open\\('keymap_visualizer/preferences.py'\\).read\\(\\)\\); print\\('preferences.py OK'\\)\" && python -c \"import ast; ast.parse\\(open\\('keymap_visualizer/drawing.py'\\).read\\(\\)\\); print\\('drawing.py OK'\\)\")"
     ]
   }
 }

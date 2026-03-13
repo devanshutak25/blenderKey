@@ -2,12 +2,10 @@
 Keymap Visualizer – Keyboard layout computation
 """
 
+import bpy
 from . import state
-from .constants import (
-    KeyRect, KEYBOARD_ROWS, NAV_CLUSTER_ROWS, NAV_ROW_ALIGNMENT,
-    NUMPAD_ROWS, NUMPAD_ROW_ALIGNMENT,
-    SPACE_TYPE_FILTERS, MODE_FILTERS,
-)
+from .constants import KeyRect, SPACE_TYPE_FILTERS, MODE_FILTERS
+from .keyboards import get_resolved_rows
 
 
 def _compute_keyboard_layout(region_width, region_height):
@@ -15,6 +13,20 @@ def _compute_keyboard_layout(region_width, region_height):
     state._key_rects = []
     state._modifier_rects = []
     state._batch_dirty = True
+
+    # Read keyboard layout preferences
+    try:
+        prefs = bpy.context.preferences.addons["keymap_visualizer"].preferences
+        form_factor = prefs.keyboard_form_factor
+        logical_layout = prefs.keyboard_logical_layout
+        physical_size = prefs.keyboard_physical_size
+    except Exception:
+        form_factor = 'ANSI'
+        logical_layout = 'QWERTY'
+        physical_size = '100'
+
+    main_rows, nav_rows, numpad_rows, nav_alignment, numpad_alignment = \
+        get_resolved_rows(form_factor, logical_layout, physical_size)
 
     # Unit size: fit keyboard to fill the window in both dimensions.
     # Horizontal: wider divisor for more room per key
@@ -31,7 +43,7 @@ def _compute_keyboard_layout(region_width, region_height):
 
     # Calculate main block width (widest row)
     main_width = 0
-    for row in KEYBOARD_ROWS:
+    for row in main_rows:
         row_w = 0
         for item in row:
             if isinstance(item, (int, float)):
@@ -44,7 +56,13 @@ def _compute_keyboard_layout(region_width, region_height):
     nav_width = 3.0  # nav cluster is 3 keys wide max
     numpad_gap = 1.0
     numpad_width = 4.0
-    total_width_units = main_width + nav_gap + nav_width + numpad_gap + numpad_width
+
+    # Calculate total width based on which sections are present
+    total_width_units = main_width
+    if nav_rows:
+        total_width_units += nav_gap + nav_width
+    if numpad_rows:
+        total_width_units += numpad_gap + numpad_width
 
     # Center the whole keyboard
     total_width_px = total_width_units * unit_px
@@ -54,7 +72,7 @@ def _compute_keyboard_layout(region_width, region_height):
     start_y = bottom_panel_height + unit_px * 0.5
 
     # Build main block key rects (rows stack bottom-to-top)
-    for row_idx, row in enumerate(KEYBOARD_ROWS):
+    for row_idx, row in enumerate(main_rows):
         x = start_x
         y = start_y + row_idx * unit_px
         for item in row:
@@ -68,43 +86,48 @@ def _compute_keyboard_layout(region_width, region_height):
                 x += width_u * unit_px
 
     # Build nav cluster key rects
-    nav_start_x = start_x + (main_width + nav_gap) * unit_px
-    for nav_row_idx, nav_row in enumerate(NAV_CLUSTER_ROWS):
-        if nav_row_idx >= len(NAV_ROW_ALIGNMENT):
-            break
-        main_row_idx = NAV_ROW_ALIGNMENT[nav_row_idx]
-        y = start_y + main_row_idx * unit_px
-        x = nav_start_x
-        for item in nav_row:
-            if isinstance(item, (int, float)):
-                x += item * unit_px
-            else:
-                label, event_type, width_u = item
-                w = width_u * unit_px - key_gap
-                h = unit_px - key_gap
-                state._key_rects.append(KeyRect(label, event_type, x, y, w, h))
-                x += width_u * unit_px
+    if nav_rows:
+        nav_start_x = start_x + (main_width + nav_gap) * unit_px
+        for nav_row_idx, nav_row in enumerate(nav_rows):
+            if nav_row_idx >= len(nav_alignment):
+                break
+            main_row_idx = nav_alignment[nav_row_idx]
+            y = start_y + main_row_idx * unit_px
+            x = nav_start_x
+            for item in nav_row:
+                if isinstance(item, (int, float)):
+                    x += item * unit_px
+                else:
+                    label, event_type, width_u = item
+                    w = width_u * unit_px - key_gap
+                    h = unit_px - key_gap
+                    state._key_rects.append(KeyRect(label, event_type, x, y, w, h))
+                    x += width_u * unit_px
 
     # Build numpad key rects
-    numpad_start_x = nav_start_x + nav_width * unit_px + numpad_gap * unit_px
-    for np_row_idx, np_row in enumerate(NUMPAD_ROWS):
-        if np_row_idx >= len(NUMPAD_ROW_ALIGNMENT):
-            break
-        main_row_idx = NUMPAD_ROW_ALIGNMENT[np_row_idx]
-        y = start_y + main_row_idx * unit_px
-        x = numpad_start_x
-        for item in np_row:
-            if isinstance(item, (int, float)):
-                x += item * unit_px
-            else:
-                label, event_type, width_u = item
-                w = width_u * unit_px - key_gap
-                h = unit_px - key_gap
-                state._key_rects.append(KeyRect(label, event_type, x, y, w, h))
-                x += width_u * unit_px
+    if numpad_rows:
+        if nav_rows:
+            numpad_start_x = start_x + (main_width + nav_gap + nav_width + numpad_gap) * unit_px
+        else:
+            numpad_start_x = start_x + (main_width + numpad_gap) * unit_px
+        for np_row_idx, np_row in enumerate(numpad_rows):
+            if np_row_idx >= len(numpad_alignment):
+                break
+            main_row_idx = numpad_alignment[np_row_idx]
+            y = start_y + main_row_idx * unit_px
+            x = numpad_start_x
+            for item in np_row:
+                if isinstance(item, (int, float)):
+                    x += item * unit_px
+                else:
+                    label, event_type, width_u = item
+                    w = width_u * unit_px - key_gap
+                    h = unit_px - key_gap
+                    state._key_rects.append(KeyRect(label, event_type, x, y, w, h))
+                    x += width_u * unit_px
 
     # --- Toolbar row above keyboard (Export + Presets + Close, right-aligned) ---
-    toolbar_y = start_y + len(KEYBOARD_ROWS) * unit_px + unit_px * 0.3
+    toolbar_y = start_y + len(main_rows) * unit_px + unit_px * 0.3
     toolbar_h = unit_px * 0.55
     btn_gap = unit_px * 0.2
     export_btn_w = unit_px * 1.6

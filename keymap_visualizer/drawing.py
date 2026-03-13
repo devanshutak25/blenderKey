@@ -13,7 +13,7 @@ from gpu_extras.batch import batch_for_shader
 
 from . import state
 from .constants import (
-    KEYBOARD_ROWS, _MODIFIER_EVENTS, MODIFIER_KEY_TO_DICT,
+    _MODIFIER_EVENTS, MODIFIER_KEY_TO_DICT,
     COL_BG, COL_KEY_DEFAULT, COL_KEY_HOVER, COL_KEY_SELECTED, COL_KEY_MODIFIER,
     COL_KEY_INACTIVE, COL_BORDER, COL_BORDER_HIGHLIGHT, COL_TEXT, COL_TEXT_DIM,
     COL_TOGGLE_ACTIVE, COL_TOGGLE_INACTIVE, COL_INFO_BG,
@@ -804,13 +804,28 @@ def _draw_callback():
             # 4. Category color (v0.9) → CATEGORY_COLORS[cat]
             # 5. Bound → key_bound
             # 6. Unbound → key_default
+            # ISO Enter co-highlighting: if hovered/selected key shares event_type
+            _co_highlight = False
+            if state._hovered_key_index >= 0 and i != state._hovered_key_index:
+                hovered_et = state._key_rects[state._hovered_key_index].event_type
+                if kr.event_type == hovered_et and hovered_et == 'RET':
+                    _co_highlight = True
+            if state._selected_key_index >= 0 and i != state._selected_key_index:
+                selected_et = state._key_rects[state._selected_key_index].event_type
+                if kr.event_type == selected_et and selected_et == 'RET':
+                    _co_highlight = True
+
             if i == state._selected_key_index:
+                col = colors['key_selected']
+            elif _co_highlight and state._selected_key_index >= 0:
                 col = colors['key_selected']
             elif i == state._hovered_key_index:
                 if state._hover_transition < 1.0:
                     col = _lerp_color(colors['key_default'], colors['key_hovered'], state._hover_transition)
                 else:
                     col = colors['key_hovered']
+            elif _co_highlight:
+                col = colors['key_hovered']
             elif kr.event_type in _MODIFIER_EVENTS:
                 dict_key = MODIFIER_KEY_TO_DICT.get(kr.event_type)
                 is_mod_active = state._get_effective_modifiers().get(dict_key, False)
