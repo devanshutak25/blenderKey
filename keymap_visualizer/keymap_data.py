@@ -3,9 +3,47 @@ Keymap Visualizer – Keymap query, conflict detection, rebinding, search filter
 """
 
 import bpy
-import time
 from . import state
 from .constants import OPERATOR_ABBREVIATIONS, OPERATOR_CATEGORIES
+
+
+def _kmi_matches_modifiers(kmi, effective):
+    """Check if a KMI's modifier flags match the effective modifiers."""
+    return (kmi.ctrl == effective['ctrl'] and kmi.shift == effective['shift'] and
+            kmi.alt == effective['alt'] and kmi.oskey == effective['oskey'])
+
+
+def _build_mod_string(kmi):
+    """Build a human-readable modifier string like 'Ctrl+Shift' from a KMI."""
+    mod_parts = []
+    if kmi.ctrl:
+        mod_parts.append("Ctrl")
+    if kmi.shift:
+        mod_parts.append("Shift")
+    if kmi.alt:
+        mod_parts.append("Alt")
+    if kmi.oskey:
+        mod_parts.append("OS")
+    return "+".join(mod_parts) if mod_parts else ""
+
+
+def _iter_filtered_kmis(check_active=True, check_modifiers=True, effective=None):
+    """Yield (km, kmi) pairs from user keyconfig, applying filter/active/modifier checks."""
+    wm = bpy.context.window_manager
+    kc = wm.keyconfigs.user
+    if kc is None:
+        return
+    if check_modifiers and effective is None:
+        effective = state._get_effective_modifiers()
+    for km in kc.keymaps:
+        if not _km_passes_filter(km):
+            continue
+        for kmi in km.keymap_items:
+            if check_active and not kmi.active:
+                continue
+            if check_modifiers and not _kmi_matches_modifiers(kmi, effective):
+                continue
+            yield km, kmi
 
 
 def _humanize_op_id(idname):
@@ -50,22 +88,10 @@ def _get_bindings_for_key(event_type, modifiers):
         for kmi in km.keymap_items:
             if kmi.type != event_type:
                 continue
-            if (kmi.ctrl != effective['ctrl'] or kmi.shift != effective['shift'] or
-                    kmi.alt != effective['alt'] or kmi.oskey != effective['oskey']):
+            if not _kmi_matches_modifiers(kmi, effective):
                 continue
 
-            # Build modifier string
-            mod_parts = []
-            if kmi.ctrl:
-                mod_parts.append("Ctrl")
-            if kmi.shift:
-                mod_parts.append("Shift")
-            if kmi.alt:
-                mod_parts.append("Alt")
-            if kmi.oskey:
-                mod_parts.append("OS")
-            mod_str = "+".join(mod_parts) if mod_parts else ""
-
+            mod_str = _build_mod_string(kmi)
             results.append((km.name, kmi.idname, mod_str, kmi, kmi.active, km.space_type))
             if len(results) >= 20:
                 break
@@ -107,21 +133,9 @@ def _get_all_bindings_for_key(event_type):
             if kmi.type != event_type:
                 continue
 
-            # Build modifier string
-            mod_parts = []
-            if kmi.ctrl:
-                mod_parts.append("Ctrl")
-            if kmi.shift:
-                mod_parts.append("Shift")
-            if kmi.alt:
-                mod_parts.append("Alt")
-            if kmi.oskey:
-                mod_parts.append("OS")
-            mod_str = "+".join(mod_parts) if mod_parts else ""
-
+            mod_str = _build_mod_string(kmi)
             entry = (km.name, kmi.idname, mod_str, kmi, kmi.active, km.space_type)
-            if (kmi.ctrl == effective['ctrl'] and kmi.shift == effective['shift'] and
-                    kmi.alt == effective['alt'] and kmi.oskey == effective['oskey']):
+            if _kmi_matches_modifiers(kmi, effective):
                 matching.append(entry)
             else:
                 non_matching.append(entry)
@@ -200,21 +214,8 @@ def _compute_bound_keys():
     if not state._bound_keys_dirty:
         return
     state._bound_keys_cache = set()
-    wm = bpy.context.window_manager
-    kc = wm.keyconfigs.user
-    if kc is None:
-        state._bound_keys_dirty = False
-        return
-    effective = state._get_effective_modifiers()
-    for km in kc.keymaps:
-        if not _km_passes_filter(km):
-            continue
-        for kmi in km.keymap_items:
-            if kmi.active:
-                if (kmi.ctrl != effective['ctrl'] or kmi.shift != effective['shift'] or
-                        kmi.alt != effective['alt'] or kmi.oskey != effective['oskey']):
-                    continue
-                state._bound_keys_cache.add(kmi.type)
+    for km, kmi in _iter_filtered_kmis():
+        state._bound_keys_cache.add(kmi.type)
     state._bound_keys_dirty = False
 
 
@@ -227,20 +228,9 @@ def _update_search_filter():
         return
 
     query = state._search_text.lower()
-    wm = bpy.context.window_manager
-    kc = wm.keyconfigs.user
-    if kc is None:
-        state._batch_dirty = True
-        return
-
-    for km in kc.keymaps:
-        if not _km_passes_filter(km):
-            continue
-        for kmi in km.keymap_items:
-            if not kmi.active:
-                continue
-            if query in kmi.idname.lower() or query in kmi.name.lower():
-                state._search_matching_keys.add(kmi.type)
+    for km, kmi in _iter_filtered_kmis(check_modifiers=False):
+        if query in kmi.idname.lower() or query in kmi.name.lower():
+            state._search_matching_keys.add(kmi.type)
 
     state._batch_dirty = True
 
@@ -266,27 +256,10 @@ def _compute_key_labels():
     if not state._key_labels_dirty:
         return
     state._key_labels_cache = {}
-    wm = bpy.context.window_manager
-    kc = wm.keyconfigs.user
-    if kc is None:
-        state._key_labels_dirty = False
-        return
-
-    effective = state._get_effective_modifiers()
-
-    for km in kc.keymaps:
-        if not _km_passes_filter(km):
-            continue
-        for kmi in km.keymap_items:
-            if not kmi.active:
-                continue
-            if (kmi.ctrl != effective['ctrl'] or kmi.shift != effective['shift'] or
-                    kmi.alt != effective['alt'] or kmi.oskey != effective['oskey']):
-                continue
-            # Only store first (highest priority) binding per key
-            if kmi.type not in state._key_labels_cache:
-                state._key_labels_cache[kmi.type] = _get_operator_abbreviation(kmi.idname)
-
+    for km, kmi in _iter_filtered_kmis():
+        # Only store first (highest priority) binding per key
+        if kmi.type not in state._key_labels_cache:
+            state._key_labels_cache[kmi.type] = _get_operator_abbreviation(kmi.idname)
     state._key_labels_dirty = False
 
 
@@ -298,28 +271,11 @@ def _compute_key_editor_icons():
     if not state._key_editor_icons_dirty:
         return
     state._key_editor_icons_cache = {}
-    wm = bpy.context.window_manager
-    kc = wm.keyconfigs.user
-    if kc is None:
-        state._key_editor_icons_dirty = False
-        return
-
-    effective = state._get_effective_modifiers()
-
-    for km in kc.keymaps:
-        if not _km_passes_filter(km):
-            continue
-        for kmi in km.keymap_items:
-            if not kmi.active:
-                continue
-            if (kmi.ctrl != effective['ctrl'] or kmi.shift != effective['shift'] or
-                    kmi.alt != effective['alt'] or kmi.oskey != effective['oskey']):
-                continue
-            # Only store first (highest priority) binding's space_type per key
-            if kmi.type not in state._key_editor_icons_cache:
-                if km.space_type and km.space_type != 'EMPTY':
-                    state._key_editor_icons_cache[kmi.type] = km.space_type
-
+    for km, kmi in _iter_filtered_kmis():
+        # Only store first (highest priority) binding's space_type per key
+        if kmi.type not in state._key_editor_icons_cache:
+            if km.space_type and km.space_type != 'EMPTY':
+                state._key_editor_icons_cache[kmi.type] = km.space_type
     state._key_editor_icons_dirty = False
 
 
@@ -342,28 +298,11 @@ def _compute_key_categories():
     if not state._key_categories_dirty:
         return
     state._key_categories_cache = {}
-    wm = bpy.context.window_manager
-    kc = wm.keyconfigs.user
-    if kc is None:
-        state._key_categories_dirty = False
-        return
-
-    effective = state._get_effective_modifiers()
-
-    for km in kc.keymaps:
-        if not _km_passes_filter(km):
-            continue
-        for kmi in km.keymap_items:
-            if not kmi.active:
-                continue
-            if (kmi.ctrl != effective['ctrl'] or kmi.shift != effective['shift'] or
-                    kmi.alt != effective['alt'] or kmi.oskey != effective['oskey']):
-                continue
-            if kmi.type not in state._key_categories_cache:
-                cat = _get_operator_category(kmi.idname)
-                if cat:
-                    state._key_categories_cache[kmi.type] = cat
-
+    for km, kmi in _iter_filtered_kmis():
+        if kmi.type not in state._key_categories_cache:
+            cat = _get_operator_category(kmi.idname)
+            if cat:
+                state._key_categories_cache[kmi.type] = cat
     state._key_categories_dirty = False
 
 
@@ -375,29 +314,18 @@ def _compute_key_modifier_badges():
     if not state._key_modifier_badge_dirty:
         return
     state._key_modifier_badge_cache = {}
-    wm = bpy.context.window_manager
-    kc = wm.keyconfigs.user
-    if kc is None:
-        state._key_modifier_badge_dirty = False
-        return
-
     effective = state._get_effective_modifiers()
     eff_tuple = (effective['ctrl'], effective['shift'], effective['alt'], effective['oskey'])
 
     # For each key, collect the set of modifier combos that have bindings
     key_mod_combos = {}  # {event_type: set of mod_tuples}
-    for km in kc.keymaps:
-        if not _km_passes_filter(km):
-            continue
-        for kmi in km.keymap_items:
-            if not kmi.active:
-                continue
-            mod_t = (kmi.ctrl, kmi.shift, kmi.alt, kmi.oskey)
-            if mod_t == eff_tuple:
-                continue  # Skip the currently-active combo
-            if kmi.type not in key_mod_combos:
-                key_mod_combos[kmi.type] = set()
-            key_mod_combos[kmi.type].add(mod_t)
+    for km, kmi in _iter_filtered_kmis(check_modifiers=False):
+        mod_t = (kmi.ctrl, kmi.shift, kmi.alt, kmi.oskey)
+        if mod_t == eff_tuple:
+            continue  # Skip the currently-active combo
+        if kmi.type not in key_mod_combos:
+            key_mod_combos[kmi.type] = set()
+        key_mod_combos[kmi.type].add(mod_t)
 
     for event_type, combos in key_mod_combos.items():
         state._key_modifier_badge_cache[event_type] = len(combos)

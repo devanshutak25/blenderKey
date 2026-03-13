@@ -21,6 +21,56 @@ from .drawing import _build_gpu_menu, _build_preset_dropdown
 from .constants import _CAPTURABLE_KEYS, MODIFIER_KEY_TO_DICT
 
 
+def _tag_redraw():
+    """Request a redraw of the target area if available."""
+    if state._target_area is not None:
+        state._target_area.tag_redraw()
+
+
+def _dismiss_menu():
+    """Clear GPU menu state and redraw."""
+    state._gpu_menu_items.clear()
+    state._gpu_menu_hovered = -1
+    state._batch_dirty = True
+    _tag_redraw()
+
+
+def _dismiss_conflict():
+    """Clear conflict dialog state and redraw."""
+    state._conflict_hovered_button = -1
+    state._conflict_button_rects.clear()
+    state._conflict_data['conflicts'] = []
+    state._menu_context.clear()
+    state._batch_dirty = True
+    _tag_redraw()
+
+
+def _dismiss_preset_dropdown():
+    """Clear preset dropdown state and redraw."""
+    state._preset_dropdown_open = False
+    state._preset_dropdown_rects = []
+    state._preset_dropdown_hovered = -1
+    state._modal_state = 'IDLE'
+    state._batch_dirty = True
+    _tag_redraw()
+
+
+def _toggle_filter_item(filter_set, value):
+    """Toggle an item in a filter set with ALL-aware logic, then redraw."""
+    if value == 'ALL':
+        filter_set.clear()
+        filter_set.add('ALL')
+    elif value in filter_set:
+        filter_set.discard(value)
+        if not filter_set:
+            filter_set.add('ALL')
+    else:
+        filter_set.discard('ALL')
+        filter_set.add(value)
+    state._invalidate_cache()
+    _tag_redraw()
+
+
 def _get_unit_px():
     """Compute current unit_px from cached region size and user scale."""
     rw, rh = state._cached_region_size
@@ -47,8 +97,7 @@ def _update_physical_modifiers(event):
         if new_source != state._modifier_source:
             state._modifier_source = new_source
         state._invalidate_cache()
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
+        _tag_redraw()
     return changed
 
 
@@ -64,8 +113,7 @@ def _handle_resize_drag(context, event):
             state._user_scale = new_scale
             state._cached_region_size = (0, 0)  # Force layout recompute
             state._invalidate_cache()
-            if state._target_area is not None:
-                state._target_area.tag_redraw()
+            _tag_redraw()
         return {'RUNNING_MODAL'}
 
     if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
@@ -77,8 +125,7 @@ def _handle_resize_drag(context, event):
         state._resize_dragging = False
         state._cached_region_size = (0, 0)
         state._invalidate_cache()
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
+        _tag_redraw()
         return {'RUNNING_MODAL'}
 
     return {'RUNNING_MODAL'}
@@ -97,22 +144,19 @@ def _handle_idle(context, event):
     if event.type == 'Z' and event.value == 'PRESS' and event.ctrl and not event.shift:
         if _do_undo():
             state._invalidate_cache()
-            if state._target_area is not None:
-                state._target_area.tag_redraw()
+            _tag_redraw()
         return {'RUNNING_MODAL'}
 
     if event.type == 'Z' and event.value == 'PRESS' and event.ctrl and event.shift:
         if _do_redo():
             state._invalidate_cache()
-            if state._target_area is not None:
-                state._target_area.tag_redraw()
+            _tag_redraw()
         return {'RUNNING_MODAL'}
 
     # v0.9 Feature 5: Shortcut search activation (Shift+/)
     if event.type == 'SLASH' and event.value == 'PRESS' and event.shift:
         state._shortcut_search_active = True
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
+        _tag_redraw()
         return {'RUNNING_MODAL'}
 
     # Scroll drag handling (middle mouse)
@@ -134,8 +178,7 @@ def _handle_idle(context, event):
                 px, py, pw, ph = state._filter_mode_list_rect
                 max_scroll = max(0, total_h - ph)
                 state._filter_mode_scroll = max(0, min(max_scroll, new_scroll))
-            if state._target_area is not None:
-                state._target_area.tag_redraw()
+            _tag_redraw()
             return {'RUNNING_MODAL'}
         if event.type == 'MIDDLEMOUSE' and event.value == 'RELEASE':
             state._filter_scroll_drag_target = None
@@ -162,8 +205,7 @@ def _handle_idle(context, event):
                     state._filter_editor_scroll = max(0, min(max_scroll, state._filter_editor_scroll + delta))
                 else:
                     state._filter_mode_scroll = max(0, min(max_scroll, state._filter_mode_scroll + delta))
-                if state._target_area is not None:
-                    state._target_area.tag_redraw()
+                _tag_redraw()
                 return {'RUNNING_MODAL'}
 
         # Info panel scroll
@@ -173,8 +215,7 @@ def _handle_idle(context, event):
                 info_line_h = max(10, int(_get_unit_px() * 0.28)) + 3
                 delta = -info_line_h if event.type == 'WHEELUPMOUSE' else info_line_h
                 state._info_panel_scroll = max(0, min(state._info_panel_max_scroll, state._info_panel_scroll + delta))
-                if state._target_area is not None:
-                    state._target_area.tag_redraw()
+                _tag_redraw()
                 return {'RUNNING_MODAL'}
 
     # Middle-click drag start for list panels
@@ -230,8 +271,8 @@ def _handle_idle(context, event):
             state._presets_hovered = new_presets_hover
             changed = True
 
-        if changed and state._target_area is not None:
-            state._target_area.tag_redraw()
+        if changed:
+            _tag_redraw()
         return {'RUNNING_MODAL'}
 
     if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
@@ -253,38 +294,14 @@ def _handle_idle(context, event):
         editor_hit = _hit_test_editor_list(mx, my)
         if editor_hit >= 0:
             item = state._filter_editor_list_rects[editor_hit]
-            value = item[1]
-            if value == 'ALL':
-                state._filter_space_types = {'ALL'}
-            elif value in state._filter_space_types:
-                state._filter_space_types.discard(value)
-                if not state._filter_space_types:
-                    state._filter_space_types = {'ALL'}
-            else:
-                state._filter_space_types.discard('ALL')
-                state._filter_space_types.add(value)
-            state._invalidate_cache()
-            if state._target_area is not None:
-                state._target_area.tag_redraw()
+            _toggle_filter_item(state._filter_space_types, item[1])
             return {'RUNNING_MODAL'}
 
         # Check mode list click
         mode_hit = _hit_test_mode_list(mx, my)
         if mode_hit >= 0:
             item = state._filter_mode_list_rects[mode_hit]
-            value = item[1]
-            if value == 'ALL':
-                state._filter_modes = {'ALL'}
-            elif value in state._filter_modes:
-                state._filter_modes.discard(value)
-                if not state._filter_modes:
-                    state._filter_modes = {'ALL'}
-            else:
-                state._filter_modes.discard('ALL')
-                state._filter_modes.add(value)
-            state._invalidate_cache()
-            if state._target_area is not None:
-                state._target_area.tag_redraw()
+            _toggle_filter_item(state._filter_modes, item[1])
             return {'RUNNING_MODAL'}
 
         # v0.9 Feature 6: Check presets button
@@ -293,16 +310,14 @@ def _handle_idle(context, event):
             _build_preset_dropdown(state._presets_btn_rect, region_w, region_h)
             state._preset_dropdown_open = True
             state._modal_state = 'PRESET_DROPDOWN'
-            if state._target_area is not None:
-                state._target_area.tag_redraw()
+            _tag_redraw()
             return {'RUNNING_MODAL'}
 
         # Check export button
         if _hit_test_export(mx, my):
             success, msg = _do_export()
             print(f"[Keymap Visualizer] {msg}")
-            if state._target_area is not None:
-                state._target_area.tag_redraw()
+            _tag_redraw()
             return {'RUNNING_MODAL'}
 
         # Check key hit
@@ -315,8 +330,7 @@ def _handle_idle(context, event):
                 state._active_modifiers[dict_key] = not state._active_modifiers[dict_key]
                 state._invalidate_cache()
                 state._batch_dirty = True
-                if state._target_area is not None:
-                    state._target_area.tag_redraw()
+                _tag_redraw()
                 return {'RUNNING_MODAL'}
             # Normal key selection (toggle on re-click)
             if key_hit == state._selected_key_index:
@@ -325,8 +339,7 @@ def _handle_idle(context, event):
                 state._selected_key_index = key_hit
             state._info_panel_scroll = 0  # Reset scroll on key change
             state._batch_dirty = True
-            if state._target_area is not None:
-                state._target_area.tag_redraw()
+            _tag_redraw()
         return {'RUNNING_MODAL'}
 
     # Right-click: context menu (Feature 5: enhanced with all bindings)
@@ -354,8 +367,7 @@ def _handle_idle(context, event):
                 region_w, region_h = state._cached_region_size
                 _build_gpu_menu(mx, my, region_w, region_h, bindings=bindings)
                 state._modal_state = 'MENU_OPEN'
-                if state._target_area is not None:
-                    state._target_area.tag_redraw()
+                _tag_redraw()
             return {'RUNNING_MODAL'}
 
     # Search activation: / key or Ctrl+F (but not Shift+/ which is shortcut search)
@@ -363,16 +375,14 @@ def _handle_idle(context, event):
         state._search_active = True
         state._search_text = ''
         _update_search_filter()
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
+        _tag_redraw()
         return {'RUNNING_MODAL'}
 
     if event.type == 'F' and event.value == 'PRESS' and event.ctrl:
         state._search_active = True
         state._search_text = ''
         _update_search_filter()
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
+        _tag_redraw()
         return {'RUNNING_MODAL'}
 
     return None  # Not handled
@@ -384,8 +394,7 @@ def _handle_menu_open(context, event):
         new_hover = _hit_test_gpu_menu(event.mouse_region_x, event.mouse_region_y)
         if new_hover != state._gpu_menu_hovered:
             state._gpu_menu_hovered = new_hover
-            if state._target_area is not None:
-                state._target_area.tag_redraw()
+            _tag_redraw()
         return {'RUNNING_MODAL'}
 
     if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
@@ -439,30 +448,18 @@ def _handle_menu_open(context, event):
             # Clicked outside menu — dismiss
             state._modal_state = 'IDLE'
 
-        state._gpu_menu_items.clear()
-        state._gpu_menu_hovered = -1
-        state._batch_dirty = True
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
+        _dismiss_menu()
         return {'RUNNING_MODAL'}
 
     if event.type == 'ESC' and event.value == 'PRESS':
         state._modal_state = 'IDLE'
-        state._gpu_menu_items.clear()
-        state._gpu_menu_hovered = -1
-        state._batch_dirty = True
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
+        _dismiss_menu()
         return {'RUNNING_MODAL'}
 
     if event.type == 'RIGHTMOUSE' and event.value == 'PRESS':
         # Dismiss on right-click too
         state._modal_state = 'IDLE'
-        state._gpu_menu_items.clear()
-        state._gpu_menu_hovered = -1
-        state._batch_dirty = True
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
+        _dismiss_menu()
         return {'RUNNING_MODAL'}
 
     return {'RUNNING_MODAL'}
@@ -477,8 +474,7 @@ def _handle_capture(context, event):
         state._modal_state = 'IDLE'
         state._menu_context.clear()
         state._batch_dirty = True
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
+        _tag_redraw()
         return {'RUNNING_MODAL'}
 
     if event.type in _CAPTURABLE_KEYS:
@@ -516,8 +512,7 @@ def _handle_capture(context, event):
             state._modal_state = 'CONFLICT'
 
         state._batch_dirty = True
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
+        _tag_redraw()
         return {'RUNNING_MODAL'}
 
     # Ignore non-capturable keys silently
@@ -530,8 +525,7 @@ def _handle_conflict(context, event):
         new_hover = _hit_test_conflict_buttons(event.mouse_region_x, event.mouse_region_y)
         if new_hover != state._conflict_hovered_button:
             state._conflict_hovered_button = new_hover
-            if state._target_area is not None:
-                state._target_area.tag_redraw()
+            _tag_redraw()
         return {'RUNNING_MODAL'}
 
     if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
@@ -580,25 +574,13 @@ def _handle_conflict(context, event):
             # CANCEL or fallthrough: just dismiss
 
         state._modal_state = 'IDLE'
-        state._conflict_hovered_button = -1
-        state._conflict_button_rects.clear()
-        state._conflict_data['conflicts'] = []
-        state._menu_context.clear()
         state._invalidate_cache()
-        state._batch_dirty = True
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
+        _dismiss_conflict()
         return {'RUNNING_MODAL'}
 
     if event.type == 'ESC' and event.value == 'PRESS':
         state._modal_state = 'IDLE'
-        state._conflict_hovered_button = -1
-        state._conflict_button_rects.clear()
-        state._conflict_data['conflicts'] = []
-        state._menu_context.clear()
-        state._batch_dirty = True
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
+        _dismiss_conflict()
         return {'RUNNING_MODAL'}
 
     return {'RUNNING_MODAL'}
@@ -613,14 +595,12 @@ def _handle_search(context, event):
         state._search_active = False
         state._search_text = ''
         _update_search_filter()
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
+        _tag_redraw()
         return {'RUNNING_MODAL'}
 
     if event.type == 'RET' and event.value == 'PRESS':
         state._search_active = False
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
+        _tag_redraw()
         return {'RUNNING_MODAL'}
 
     if event.type == 'BACK_SPACE' and event.value == 'PRESS':
@@ -630,8 +610,7 @@ def _handle_search(context, event):
             if now - state._search_last_update > 0.15:
                 _update_search_filter()
                 state._search_last_update = now
-            if state._target_area is not None:
-                state._target_area.tag_redraw()
+            _tag_redraw()
         return {'RUNNING_MODAL'}
 
     # Printable character input via event.unicode
@@ -641,8 +620,7 @@ def _handle_search(context, event):
         if now - state._search_last_update > 0.15:
             _update_search_filter()
             state._search_last_update = now
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
+        _tag_redraw()
         return {'RUNNING_MODAL'}
 
     return None  # Not handled by search
@@ -658,8 +636,7 @@ def _handle_shortcut_search(context, event):
 
     if event.type == 'ESC' and event.value == 'PRESS':
         state._shortcut_search_active = False
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
+        _tag_redraw()
         return {'RUNNING_MODAL'}
 
     if event.value == 'PRESS' and event.type in _CAPTURABLE_KEYS:
@@ -681,8 +658,7 @@ def _handle_shortcut_search(context, event):
 
         state._shortcut_search_active = False
         state._batch_dirty = True
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
+        _tag_redraw()
         return {'RUNNING_MODAL'}
 
     return {'RUNNING_MODAL'}
@@ -697,8 +673,7 @@ def _handle_preset_dropdown(context, event):
         new_hover = _hit_test_preset_dropdown(event.mouse_region_x, event.mouse_region_y)
         if new_hover != state._preset_dropdown_hovered:
             state._preset_dropdown_hovered = new_hover
-            if state._target_area is not None:
-                state._target_area.tag_redraw()
+            _tag_redraw()
         return {'RUNNING_MODAL'}
 
     if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
@@ -717,8 +692,7 @@ def _handle_preset_dropdown(context, event):
                 state._preset_dropdown_rects = []
                 state._preset_dropdown_hovered = -1
                 state._modal_state = 'IDLE'
-                if state._target_area is not None:
-                    state._target_area.tag_redraw()
+                _tag_redraw()
                 return {'RUNNING_MODAL'}
             elif action == 'DELETE':
                 # Delete current preset
@@ -737,23 +711,11 @@ def _handle_preset_dropdown(context, event):
                 print(f"[Keymap Visualizer] {msg}")
 
         # Close dropdown
-        state._preset_dropdown_open = False
-        state._preset_dropdown_rects = []
-        state._preset_dropdown_hovered = -1
-        state._modal_state = 'IDLE'
-        state._batch_dirty = True
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
+        _dismiss_preset_dropdown()
         return {'RUNNING_MODAL'}
 
     if event.type in ('ESC', 'RIGHTMOUSE') and event.value == 'PRESS':
-        state._preset_dropdown_open = False
-        state._preset_dropdown_rects = []
-        state._preset_dropdown_hovered = -1
-        state._modal_state = 'IDLE'
-        state._batch_dirty = True
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
+        _dismiss_preset_dropdown()
         return {'RUNNING_MODAL'}
 
     return {'RUNNING_MODAL'}
@@ -767,8 +729,7 @@ def _handle_preset_name_input(context, event):
     if event.type == 'ESC' and event.value == 'PRESS':
         state._preset_name_input_active = False
         state._preset_name_text = ''
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
+        _tag_redraw()
         return {'RUNNING_MODAL'}
 
     if event.type == 'RET' and event.value == 'PRESS':
@@ -781,21 +742,18 @@ def _handle_preset_name_input(context, event):
                 state._active_preset_name = name
         state._preset_name_input_active = False
         state._preset_name_text = ''
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
+        _tag_redraw()
         return {'RUNNING_MODAL'}
 
     if event.type == 'BACK_SPACE' and event.value == 'PRESS':
         if state._preset_name_text:
             state._preset_name_text = state._preset_name_text[:-1]
-            if state._target_area is not None:
-                state._target_area.tag_redraw()
+            _tag_redraw()
         return {'RUNNING_MODAL'}
 
     if event.value == 'PRESS' and event.unicode and event.unicode.isprintable():
         state._preset_name_text += event.unicode
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
+        _tag_redraw()
         return {'RUNNING_MODAL'}
 
     return {'RUNNING_MODAL'}

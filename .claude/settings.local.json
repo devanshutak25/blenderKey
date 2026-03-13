@@ -50,7 +50,8 @@
       "Bash(python -m py_compile keymap_visualizer/operators.py && python -m py_compile keymap_visualizer/keymap_data.py && echo \"All compiled OK\")",
       "Bash(python -m py_compile keymap_visualizer/drawing.py && echo \"OK\")",
       "Bash(cd G:/Personal/blenderKey && python -m py_compile keymap_visualizer/state.py && python -m py_compile keymap_visualizer/layout.py && python -m py_compile keymap_visualizer/hit_testing.py && python -m py_compile keymap_visualizer/keymap_data.py && python -m py_compile keymap_visualizer/handlers.py && python -m py_compile keymap_visualizer/operators.py && echo \"All OK\")",
-      "Bash(cd G:/Personal/blenderKey && python -m py_compile keymap_visualizer/drawing.py && echo \"OK\")"
+      "Bash(cd G:/Personal/blenderKey && python -m py_compile keymap_visualizer/drawing.py && echo \"OK\")",
+      "Bash(cd \"G:/Personal/blenderKey\" && python -c \"import ast; [ast.parse\\(open\\(f'keymap_visualizer/{f}'\\).read\\(\\)\\) for f in ['state.py', 'operators.py', '__init__.py', 'keymap_data.py', 'hit_testing.py', 'handlers.py', 'drawing.py']]; print\\('All files parse OK'\\)\")"
     ]
   }
 }

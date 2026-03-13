@@ -260,6 +260,73 @@ def _draw_icon(texture, x, y, size):
         pass
 
 
+def _truncate_text(font_id, text, max_width):
+    """Truncate text to fit within max_width, adding '...' if needed.
+    Returns (display_text, tw, th)."""
+    tw, th = blf.dimensions(font_id, text)
+    if tw <= max_width:
+        return text, tw, th
+    display = text
+    while tw > max_width and len(display) > 3:
+        display = display[:-4] + "..."
+        tw, th = blf.dimensions(font_id, display)
+    return display, tw, th
+
+
+def _draw_scrollbar(shader, x, y, h, scroll_offset, max_scroll, content_h, visible_h):
+    """Draw a vertical scrollbar track and thumb."""
+    track_w = 6
+    _draw_rect(shader, x, y, track_w, h, (0.25, 0.25, 0.25, 0.6))
+    visible_ratio = visible_h / content_h
+    thumb_h = max(15, h * visible_ratio)
+    scroll_ratio = scroll_offset / max_scroll if max_scroll > 0 else 0
+    thumb_y = y + h - thumb_h - scroll_ratio * (h - thumb_h)
+    _draw_rect(shader, x, thumb_y, track_w, thumb_h, (0.7, 0.7, 0.7, 0.85))
+
+
+def _draw_fade_gradient(shader_smooth, x1, x2, y, fade_h, bg_color, direction):
+    """Draw a fade gradient. direction='DOWN': opaque top -> transparent bottom.
+    direction='UP': transparent top -> opaque bottom."""
+    bg_t = (bg_color[0], bg_color[1], bg_color[2], 0.0)
+    fade_verts = [
+        (x1, y + fade_h), (x2, y + fade_h),
+        (x2, y), (x1, y),
+    ]
+    if direction == 'DOWN':
+        fade_colors = [bg_color, bg_color, bg_t, bg_t]
+    else:  # 'UP'
+        fade_colors = [bg_t, bg_t, bg_color, bg_color]
+    fb = batch_for_shader(shader_smooth, 'TRIS',
+        {"pos": fade_verts, "color": fade_colors},
+        indices=[(0, 1, 2), (0, 2, 3)])
+    shader_smooth.bind()
+    fb.draw(shader_smooth)
+
+
+def _draw_panel(shader, x, y, w, h, bg_color, border_color):
+    """Draw a panel with background fill and border."""
+    _draw_rect(shader, x, y, w, h, bg_color)
+    _draw_rect_border(shader, x, y, w, h, border_color)
+
+
+def _draw_centered_overlay(shader, font_id, rw, rh, unit_px, info_font_size, colors,
+                           main_text, main_color_key, sub_text=None):
+    """Draw a fullscreen overlay with centered main text and optional subtitle."""
+    _draw_rect(shader, 0, 0, rw, rh, colors['capture_overlay'])
+    cap_font_size = max(14, int(unit_px * 0.5))
+    blf.size(font_id, cap_font_size)
+    blf.color(font_id, *colors[main_color_key])
+    tw, th = blf.dimensions(font_id, main_text)
+    blf.position(font_id, (rw - tw) / 2, rh / 2 + 10, 0)
+    blf.draw(font_id, main_text)
+    if sub_text:
+        blf.size(font_id, info_font_size)
+        blf.color(font_id, *colors['text_dim'])
+        tw2, th2 = blf.dimensions(font_id, sub_text)
+        blf.position(font_id, (rw - tw2) / 2, rh / 2 - 20, 0)
+        blf.draw(font_id, sub_text)
+
+
 def _lerp_color(a, b, t):
     """Linearly interpolate between two RGBA colors."""
     return tuple(a[i] + (b[i] - a[i]) * t for i in range(4))
@@ -419,8 +486,7 @@ def _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_p
         px, py, pw, ph = panel_rect
         scroll_offset = state._filter_editor_scroll if is_editor else state._filter_mode_scroll
         # Panel background
-        _draw_rect(shader_uniform, px, py, pw, ph, colors['panel_bg'])
-        _draw_rect_border(shader_uniform, px, py, pw, ph, colors['border'])
+        _draw_panel(shader_uniform, px, py, pw, ph, colors['panel_bg'], colors['border'])
 
         # Header
         header_h = max(16, unit_px * 0.35)
@@ -463,12 +529,8 @@ def _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_p
                 icon_y = actual_y + (dh - icon_size) / 2
                 _draw_icon(icon_tex, icon_x, icon_y, icon_size)
                 text_x = icon_x + icon_size + 3 if icon_tex else dx + 6
-                tw, th = blf.dimensions(font_id, dlabel)
                 avail_w = dw - (text_x - dx) - 3
-                display = dlabel
-                while tw > avail_w and len(display) > 3:
-                    display = display[:-4] + "..."
-                    tw, th = blf.dimensions(font_id, display)
+                display, tw, th = _truncate_text(font_id, dlabel, avail_w)
                 blf.position(font_id, text_x, actual_y + (dh - th) / 2, 0)
                 blf.draw(font_id, display)
 
@@ -478,47 +540,17 @@ def _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_p
             max_scroll = total_content_h - ph
             track_w = 6
             track_x = px + pw - track_w - 1
-            track_y = py
-            track_h = ph
-            _draw_rect(shader_uniform, track_x, track_y, track_w, track_h, (0.25, 0.25, 0.25, 0.6))
-            visible_ratio = ph / total_content_h
-            thumb_h = max(15, track_h * visible_ratio)
-            scroll_ratio = scroll_offset / max_scroll if max_scroll > 0 else 0
-            thumb_y = track_y + track_h - thumb_h - scroll_ratio * (track_h - thumb_h)
-            _draw_rect(shader_uniform, track_x, thumb_y, track_w, thumb_h, (0.7, 0.7, 0.7, 0.85))
+            _draw_scrollbar(shader_uniform, track_x, py, ph, scroll_offset, max_scroll, total_content_h, ph)
 
             # Fade gradients at edges (Issue #9)
             fade_h = 15
+            fade_x2 = px + pw - track_w - 2
             if scroll_offset > 0:
-                # Top fade: panel_bg -> transparent (going downward from top)
-                top_fade_y = py + ph - header_h - fade_h
-                bg = colors['panel_bg']
-                bg_t = (bg[0], bg[1], bg[2], 0.0)
-                fade_verts = [
-                    (px, top_fade_y + fade_h), (px + pw - track_w - 2, top_fade_y + fade_h),
-                    (px + pw - track_w - 2, top_fade_y), (px, top_fade_y),
-                ]
-                fade_colors = [bg, bg, bg_t, bg_t]
-                fb = batch_for_shader(shader_smooth, 'TRIS',
-                    {"pos": fade_verts, "color": fade_colors},
-                    indices=[(0, 1, 2), (0, 2, 3)])
-                shader_smooth.bind()
-                fb.draw(shader_smooth)
+                _draw_fade_gradient(shader_smooth, px, fade_x2,
+                                    py + ph - header_h - fade_h, fade_h, colors['panel_bg'], 'DOWN')
             if scroll_offset < max_scroll:
-                # Bottom fade: transparent -> panel_bg (going downward)
-                bot_fade_y = py
-                bg = colors['panel_bg']
-                bg_t = (bg[0], bg[1], bg[2], 0.0)
-                fade_verts = [
-                    (px, bot_fade_y + fade_h), (px + pw - track_w - 2, bot_fade_y + fade_h),
-                    (px + pw - track_w - 2, bot_fade_y), (px, bot_fade_y),
-                ]
-                fade_colors = [bg_t, bg_t, bg, bg]
-                fb = batch_for_shader(shader_smooth, 'TRIS',
-                    {"pos": fade_verts, "color": fade_colors},
-                    indices=[(0, 1, 2), (0, 2, 3)])
-                shader_smooth.bind()
-                fb.draw(shader_smooth)
+                _draw_fade_gradient(shader_smooth, px, fade_x2,
+                                    py, fade_h, colors['panel_bg'], 'UP')
 
 
 _draw_callback_count = 0
@@ -618,8 +650,7 @@ def _draw_callback():
         if state._close_button_rect is not None:
             cbx, cby, cbw, cbh = state._close_button_rect
             cb_col = colors['button_hover'] if state._close_hovered else colors['button_normal']
-            _draw_rect(shader_uniform, cbx, cby, cbw, cbh, cb_col)
-            _draw_rect_border(shader_uniform, cbx, cby, cbw, cbh, colors['border'])
+            _draw_panel(shader_uniform, cbx, cby, cbw, cbh, cb_col, colors['border'])
             font_id = _ensure_font_loaded()
             cb_font_size = max(10, int(cbh * 0.5))
             blf.size(font_id, cb_font_size)
@@ -815,12 +846,7 @@ def _draw_callback():
                     cfont = _get_condensed_font()
                     blf.size(cfont, cmd_font_size)
                     blf.color(cfont, *colors['text_dim'])
-                    # Truncate if too wide
-                    display_cmd = cmd_label
-                    tw, th = blf.dimensions(cfont, display_cmd)
-                    while tw > kr.w - 6 and len(display_cmd) > 3:
-                        display_cmd = display_cmd[:-4] + "..."
-                        tw, th = blf.dimensions(cfont, display_cmd)
+                    display_cmd, tw, th = _truncate_text(cfont, cmd_label, kr.w - 6)
                     blf.position(cfont, kr.x + 3, kr.y + kr.h * 0.15, 0)
                     blf.draw(cfont, display_cmd)
                 else:
@@ -861,8 +887,7 @@ def _draw_callback():
         if state._export_button_rect is not None:
             ex, ey, ew, eh = state._export_button_rect
             ex_col = colors['export_button_hover'] if state._export_hovered else colors['export_button']
-            _draw_rect(shader_uniform, ex, ey, ew, eh, ex_col)
-            _draw_rect_border(shader_uniform, ex, ey, ew, eh, colors['border'])
+            _draw_panel(shader_uniform, ex, ey, ew, eh, ex_col, colors['border'])
 
             if unit_px >= 20:
                 blf.size(font_id, font_size)
@@ -876,18 +901,13 @@ def _draw_callback():
         if state._presets_btn_rect is not None:
             px, py, pw, ph = state._presets_btn_rect
             pr_col = colors['button_hover'] if state._presets_hovered else colors['button_normal']
-            _draw_rect(shader_uniform, px, py, pw, ph, pr_col)
-            _draw_rect_border(shader_uniform, px, py, pw, ph, colors['border'])
+            _draw_panel(shader_uniform, px, py, pw, ph, pr_col, colors['border'])
 
             if unit_px >= 20:
                 blf.size(font_id, font_size)
                 blf.color(font_id, *colors['text'])
                 plabel = state._active_preset_name if state._active_preset_name else "Presets"
-                tw, th = blf.dimensions(font_id, plabel)
-                # Truncate if needed
-                while tw > pw - 10 and len(plabel) > 3:
-                    plabel = plabel[:-4] + "..."
-                    tw, th = blf.dimensions(font_id, plabel)
+                plabel, tw, th = _truncate_text(font_id, plabel, pw - 10)
                 blf.position(font_id, px + (pw - tw) / 2, py + (ph - th) / 2, 0)
                 blf.draw(font_id, plabel)
 
@@ -917,8 +937,7 @@ def _draw_callback():
             dd_w = first_dd[4] + 6
             dd_h = (dd_max_y - dd_min_y) + 6
 
-            _draw_rect(shader_uniform, dd_x, dd_min_y - 3, dd_w, dd_h, colors['menu_bg'])
-            _draw_rect_border(shader_uniform, dd_x, dd_min_y - 3, dd_w, dd_h, colors['menu_border'])
+            _draw_panel(shader_uniform, dd_x, dd_min_y - 3, dd_w, dd_h, colors['menu_bg'], colors['menu_border'])
 
             for di, item in enumerate(state._preset_dropdown_rects):
                 dlabel, daction, dx, dy, dw, dh = item[:6]
@@ -977,8 +996,7 @@ def _draw_callback():
                 fx, fy, fw, fh = state._export_button_rect
                 sb_y = max(sb_y, fy + fh + 10)
 
-            _draw_rect(shader_uniform, sb_x, sb_y, sb_w, sb_h, colors['search_bg'])
-            _draw_rect_border(shader_uniform, sb_x, sb_y, sb_w, sb_h, colors['search_border'])
+            _draw_panel(shader_uniform, sb_x, sb_y, sb_w, sb_h, colors['search_bg'], colors['search_border'])
 
             if unit_px >= 20:
                 blf.size(font_id, font_size)
@@ -999,8 +1017,7 @@ def _draw_callback():
             sb_y = rh / 2 - sb_h / 2
 
             _draw_rect(shader_uniform, 0, 0, rw, rh, colors['capture_overlay'])
-            _draw_rect(shader_uniform, sb_x, sb_y, sb_w, sb_h, colors['search_bg'])
-            _draw_rect_border(shader_uniform, sb_x, sb_y, sb_w, sb_h, colors['search_border'])
+            _draw_panel(shader_uniform, sb_x, sb_y, sb_w, sb_h, colors['search_bg'], colors['search_border'])
 
             if unit_px >= 20:
                 blf.size(font_id, font_size)
@@ -1030,8 +1047,7 @@ def _draw_callback():
         info_y = min_y - pad - info_h - 5
 
         # Panel background + border (Issue #7)
-        _draw_rect(shader_uniform, info_x, info_y, info_w, info_h, colors['panel_bg'])
-        _draw_rect_border(shader_uniform, info_x, info_y, info_w, info_h, colors['border'])
+        _draw_panel(shader_uniform, info_x, info_y, info_w, info_h, colors['panel_bg'], colors['border'])
 
         # Store rect for hit testing (Issue #3)
         state._info_panel_rect = (info_x, info_y, info_w, info_h)
@@ -1117,12 +1133,7 @@ def _draw_callback():
                         blf.color(font_id, *colors['text_dim'])
 
                     # Measure and truncate main text (Issue #1)
-                    tw_main, _ = blf.dimensions(font_id, line_text)
-                    display_text = line_text
-                    if tw_main > avail_text_w * 0.6:
-                        while tw_main > avail_text_w * 0.6 and len(display_text) > 3:
-                            display_text = display_text[:-4] + "..."
-                            tw_main, _ = blf.dimensions(font_id, display_text)
+                    display_text, tw_main, _ = _truncate_text(font_id, line_text, avail_text_w * 0.6)
 
                     # Draw main text
                     blf.position(font_id, cx, ly, 0)
@@ -1140,12 +1151,7 @@ def _draw_callback():
                     remaining_w = avail_text_w - (icon_x_pos - cx)
                     if remaining_w > 20:
                         blf.color(font_id, *colors['text_dim'])
-                        tw_suf, _ = blf.dimensions(font_id, suffix)
-                        display_suf = suffix
-                        if tw_suf > remaining_w:
-                            while tw_suf > remaining_w and len(display_suf) > 5:
-                                display_suf = display_suf[:-4] + "..."
-                                tw_suf, _ = blf.dimensions(font_id, display_suf)
+                        display_suf, tw_suf, _ = _truncate_text(font_id, suffix, remaining_w)
                         blf.position(font_id, icon_x_pos, ly, 0)
                         blf.draw(font_id, display_suf)
 
@@ -1153,43 +1159,18 @@ def _draw_callback():
                 if has_scrollbar:
                     track_w = 6
                     track_x = info_x + info_w - track_w - 3
-                    track_y = content_bottom
-                    track_h = visible_h
-                    _draw_rect(shader_uniform, track_x, track_y, track_w, track_h, (0.25, 0.25, 0.25, 0.6))
-                    visible_ratio = visible_h / (total_rows * line_h)
-                    thumb_h = max(15, track_h * visible_ratio)
-                    scroll_ratio = scroll_offset / info_max_scroll if info_max_scroll > 0 else 0
-                    thumb_y = track_y + track_h - thumb_h - scroll_ratio * (track_h - thumb_h)
-                    _draw_rect(shader_uniform, track_x, thumb_y, track_w, thumb_h, (0.7, 0.7, 0.7, 0.85))
+                    _draw_scrollbar(shader_uniform, track_x, content_bottom, visible_h,
+                                    scroll_offset, info_max_scroll, total_rows * line_h, visible_h)
 
                     # Fade gradients (Issue #9)
                     fade_h = 15
+                    fade_x2 = info_x + info_w - track_w - 4
                     if scroll_offset > 0:
-                        bg = colors['panel_bg']
-                        bg_t = (bg[0], bg[1], bg[2], 0.0)
-                        fade_verts = [
-                            (cx, content_top), (info_x + info_w - track_w - 4, content_top),
-                            (info_x + info_w - track_w - 4, content_top - fade_h), (cx, content_top - fade_h),
-                        ]
-                        fade_colors = [bg, bg, bg_t, bg_t]
-                        fb = batch_for_shader(shader_smooth, 'TRIS',
-                            {"pos": fade_verts, "color": fade_colors},
-                            indices=[(0, 1, 2), (0, 2, 3)])
-                        shader_smooth.bind()
-                        fb.draw(shader_smooth)
+                        _draw_fade_gradient(shader_smooth, cx, fade_x2,
+                                            content_top - fade_h, fade_h, colors['panel_bg'], 'DOWN')
                     if scroll_offset < info_max_scroll:
-                        bg = colors['panel_bg']
-                        bg_t = (bg[0], bg[1], bg[2], 0.0)
-                        fade_verts = [
-                            (cx, content_bottom + fade_h), (info_x + info_w - track_w - 4, content_bottom + fade_h),
-                            (info_x + info_w - track_w - 4, content_bottom), (cx, content_bottom),
-                        ]
-                        fade_colors = [bg_t, bg_t, bg, bg]
-                        fb = batch_for_shader(shader_smooth, 'TRIS',
-                            {"pos": fade_verts, "color": fade_colors},
-                            indices=[(0, 1, 2), (0, 2, 3)])
-                        shader_smooth.bind()
-                        fb.draw(shader_smooth)
+                        _draw_fade_gradient(shader_smooth, cx, fade_x2,
+                                            content_bottom, fade_h, colors['panel_bg'], 'UP')
             else:
                 state._info_panel_max_scroll = 0
                 blf.color(font_id, *colors['text_dim'])
@@ -1203,39 +1184,15 @@ def _draw_callback():
 
         # --- H. Capture overlay (Phase 5) ---
         if state._modal_state == 'CAPTURE':
-            _draw_rect(shader_uniform, 0, 0, rw, rh, colors['capture_overlay'])
-            cap_font_size = max(14, int(unit_px * 0.5))
-            blf.size(font_id, cap_font_size)
-            blf.color(font_id, *colors['capture_text'])
-            msg = "Press new key combination..."
-            tw, th = blf.dimensions(font_id, msg)
-            blf.position(font_id, (rw - tw) / 2, rh / 2 + 10, 0)
-            blf.draw(font_id, msg)
-
-            blf.size(font_id, info_font_size)
-            blf.color(font_id, *colors['text_dim'])
-            sub = "ESC to cancel"
-            tw2, th2 = blf.dimensions(font_id, sub)
-            blf.position(font_id, (rw - tw2) / 2, rh / 2 - 20, 0)
-            blf.draw(font_id, sub)
+            _draw_centered_overlay(shader_uniform, font_id, rw, rh, unit_px, info_font_size,
+                                   colors, "Press new key combination...", 'capture_text',
+                                   "ESC to cancel")
 
         # --- v0.9 Feature 5: Shortcut search overlay ---
         if state._shortcut_search_active:
-            _draw_rect(shader_uniform, 0, 0, rw, rh, colors['capture_overlay'])
-            cap_font_size = max(14, int(unit_px * 0.5))
-            blf.size(font_id, cap_font_size)
-            blf.color(font_id, *colors['shortcut_search_text'])
-            msg = "Press any key combination to find its binding..."
-            tw, th = blf.dimensions(font_id, msg)
-            blf.position(font_id, (rw - tw) / 2, rh / 2 + 10, 0)
-            blf.draw(font_id, msg)
-
-            blf.size(font_id, info_font_size)
-            blf.color(font_id, *colors['text_dim'])
-            sub = "ESC to cancel"
-            tw2, th2 = blf.dimensions(font_id, sub)
-            blf.position(font_id, (rw - tw2) / 2, rh / 2 - 20, 0)
-            blf.draw(font_id, sub)
+            _draw_centered_overlay(shader_uniform, font_id, rw, rh, unit_px, info_font_size,
+                                   colors, "Press any key combination to find its binding...",
+                                   'shortcut_search_text', "ESC to cancel")
 
         # --- I. Conflict resolution overlay (Phase 5) ---
         if state._modal_state == 'CONFLICT':
@@ -1246,8 +1203,7 @@ def _draw_callback():
             panel_x = (rw - panel_w) / 2
             panel_y = (rh - panel_h) / 2
 
-            _draw_rect(shader_uniform, panel_x, panel_y, panel_w, panel_h, colors['conflict_bg'])
-            _draw_rect_border(shader_uniform, panel_x, panel_y, panel_w, panel_h, colors['border'])
+            _draw_panel(shader_uniform, panel_x, panel_y, panel_w, panel_h, colors['conflict_bg'], colors['border'])
 
             hdr_size = max(14, int(unit_px * 0.4))
             blf.size(font_id, hdr_size)
@@ -1296,8 +1252,7 @@ def _draw_callback():
             for bi, (blabel, baction) in enumerate(btn_labels):
                 bx = btn_start_x + bi * (btn_w + btn_gap)
                 bcol = colors['button_hover'] if bi == state._conflict_hovered_button else colors['button_normal']
-                _draw_rect(shader_uniform, bx, btn_y, btn_w, btn_h, bcol)
-                _draw_rect_border(shader_uniform, bx, btn_y, btn_w, btn_h, colors['border'])
+                _draw_panel(shader_uniform, bx, btn_y, btn_w, btn_h, bcol, colors['border'])
                 state._conflict_button_rects.append((blabel, baction, bx, btn_y, btn_w, btn_h))
 
                 blf.size(font_id, info_font_size)
@@ -1317,9 +1272,8 @@ def _draw_callback():
                 menu_bg_w = state._gpu_menu_items[0][4] + 6
                 menu_bg_h = (max(all_y_max) - min(all_y)) + 6
 
-                _draw_rect(shader_uniform, menu_bg_x, menu_bg_y, menu_bg_w, menu_bg_h, colors['menu_bg'])
-                _draw_rect_border(shader_uniform, menu_bg_x, menu_bg_y, menu_bg_w, menu_bg_h,
-                                  colors['menu_border'])
+                _draw_panel(shader_uniform, menu_bg_x, menu_bg_y, menu_bg_w, menu_bg_h,
+                            colors['menu_bg'], colors['menu_border'])
 
             for mi_idx, item in enumerate(state._gpu_menu_items):
                 if len(item) >= 8:

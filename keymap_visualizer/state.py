@@ -149,6 +149,120 @@ _launch_retry_count = 0
 _target_window = None
 
 
+def _reset_all_state():
+    """Reset all mutable state to defaults. Callers handle draw handler removal,
+    _set_running(), icon cleanup, and area redraws separately."""
+    global _draw_handle, _target_area, _target_window, _launch_window
+    global _hovered_key_index, _selected_key_index, _cached_region_size
+    global _cached_bindings, _bindings_key, _cached_all_bindings, _all_bindings_key
+    global _modal_state, _conflict_hovered_button, _gpu_menu_hovered
+    global _export_button_rect, _export_hovered
+    global _search_text, _search_active, _search_matching_keys, _search_last_update
+    global _batch_dirty, _hover_transition, _hover_transition_target, _last_frame_time
+    global _close_button_rect, _close_hovered, _should_close
+    global _user_scale, _resize_handle_rect, _resize_hovered, _resize_dragging
+    global _resize_drag_start_x, _resize_drag_start_scale
+    global _bound_keys_cache, _bound_keys_dirty
+    global _key_labels_cache, _key_labels_dirty
+    global _physical_modifiers, _modifier_source
+    global _key_categories_cache, _key_categories_dirty, _category_colors_enabled
+    global _key_editor_icons_cache, _key_editor_icons_dirty
+    global _shortcut_search_active
+    global _active_preset_name, _presets_btn_rect, _presets_hovered
+    global _preset_dropdown_open, _preset_dropdown_hovered
+    global _preset_name_input_active, _preset_name_text
+    global _filter_space_types, _filter_modes
+    global _filter_editor_list_rect, _filter_mode_list_rect
+    global _filter_editor_hovered, _filter_mode_hovered
+    global _filter_editor_scroll, _filter_mode_scroll
+    global _filter_scroll_drag_target, _filter_scroll_drag_start_y, _filter_scroll_drag_start_offset
+    global _info_panel_scroll, _info_panel_rect, _info_panel_max_scroll
+    global _key_modifier_badge_cache, _key_modifier_badge_dirty
+    global _launch_retry_count
+
+    _draw_handle = None
+    _target_area = None
+    _target_window = None
+    _launch_window = None
+    _launch_retry_count = 0
+    _hovered_key_index = -1
+    _selected_key_index = -1
+    _key_rects.clear()
+    _cached_region_size = (0, 0)
+    _modifier_rects.clear()
+    _active_modifiers.update({'ctrl': False, 'shift': False, 'alt': False, 'oskey': False})
+    _cached_bindings.clear()
+    _bindings_key = None
+    _cached_all_bindings = ([], 0)
+    _all_bindings_key = None
+    _modal_state = 'IDLE'
+    _menu_context.clear()
+    _conflict_data['conflicts'] = []
+    _conflict_button_rects.clear()
+    _conflict_hovered_button = -1
+    _gpu_menu_items.clear()
+    _gpu_menu_hovered = -1
+    _export_button_rect = None
+    _export_hovered = False
+    _search_text = ''
+    _search_active = False
+    _search_matching_keys = set()
+    _search_last_update = 0.0
+    _batch_dirty = True
+    _hover_transition = 0.0
+    _hover_transition_target = -1
+    _last_frame_time = 0.0
+    _close_button_rect = None
+    _close_hovered = False
+    _should_close = False
+    _user_scale = 1.0
+    _resize_handle_rect = None
+    _resize_hovered = False
+    _resize_dragging = False
+    _resize_drag_start_x = 0
+    _resize_drag_start_scale = 1.0
+    _bound_keys_cache = set()
+    _bound_keys_dirty = True
+    _key_labels_cache = {}
+    _key_labels_dirty = True
+    _physical_modifiers = {'ctrl': False, 'shift': False, 'alt': False, 'oskey': False}
+    _modifier_source = 'TOGGLE'
+    _key_categories_cache = {}
+    _key_categories_dirty = True
+    _key_editor_icons_cache = {}
+    _key_editor_icons_dirty = True
+    _undo_stack.clear()
+    _redo_stack.clear()
+    _shortcut_search_active = False
+    _presets_list.clear()
+    _active_preset_name = ""
+    _presets_btn_rect = None
+    _presets_hovered = False
+    _preset_dropdown_open = False
+    _preset_dropdown_rects.clear()
+    _preset_dropdown_hovered = -1
+    _preset_name_input_active = False
+    _preset_name_text = ""
+    _filter_space_types = {'ALL'}
+    _filter_modes = {'ALL'}
+    _filter_editor_list_rects.clear()
+    _filter_mode_list_rects.clear()
+    _filter_editor_list_rect = None
+    _filter_mode_list_rect = None
+    _filter_editor_hovered = -1
+    _filter_mode_hovered = -1
+    _filter_editor_scroll = 0
+    _filter_mode_scroll = 0
+    _filter_scroll_drag_target = None
+    _filter_scroll_drag_start_y = 0
+    _filter_scroll_drag_start_offset = 0.0
+    _info_panel_scroll = 0
+    _info_panel_rect = None
+    _info_panel_max_scroll = 0
+    _key_modifier_badge_cache = {}
+    _key_modifier_badge_dirty = True
+
+
 def _invalidate_cache():
     """Invalidate binding cache and mark batches dirty."""
     global _bindings_key, _all_bindings_key, _batch_dirty, _bound_keys_dirty, _key_labels_dirty, _key_categories_dirty, _key_editor_icons_dirty, _key_modifier_badge_dirty

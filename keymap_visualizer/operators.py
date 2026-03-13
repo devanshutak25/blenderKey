@@ -149,97 +149,9 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
             bpy.types.SpaceTextEditor.draw_handler_remove(state._draw_handle, 'WINDOW')
         except Exception:
             pass
-        state._draw_handle = None
-        state._target_area = None
-        state._hovered_key_index = -1
-        state._selected_key_index = -1
-        state._key_rects = []
-        state._cached_region_size = (0, 0)
-        state._modifier_rects = []
-        state._active_modifiers = {'ctrl': False, 'shift': False, 'alt': False, 'oskey': False}
-        state._cached_bindings = []
-        state._bindings_key = None
-        state._cached_all_bindings = ([], 0)
-        state._all_bindings_key = None
-        state._modal_state = 'IDLE'
-        state._menu_context.clear()
-        state._conflict_data['conflicts'] = []
-        state._conflict_button_rects.clear()
-        state._conflict_hovered_button = -1
-        state._gpu_menu_items.clear()
-        state._gpu_menu_hovered = -1
-        state._export_button_rect = None
-        state._export_hovered = False
-        state._search_text = ''
-        state._search_active = False
-        state._search_matching_keys = set()
-        state._batch_dirty = True
-        state._hover_transition = 0.0
-        state._hover_transition_target = -1
-        state._last_frame_time = 0.0
-        state._launch_window = None
-        state._target_window = None
-        # Feature 1: Close button cleanup
-        state._close_button_rect = None
-        state._close_hovered = False
-        state._should_close = False
-        # Feature 2: Resize cleanup
-        state._user_scale = 1.0
-        state._resize_handle_rect = None
-        state._resize_hovered = False
-        state._resize_dragging = False
-        # Feature 3: Bound keys cleanup
-        state._bound_keys_cache = set()
-        state._bound_keys_dirty = True
-        # Feature 4: Filter cleanup
-        state._filter_space_types = {'ALL'}
-        state._filter_modes = {'ALL'}
-        state._filter_editor_list_rects = []
-        state._filter_mode_list_rects = []
-        state._filter_editor_list_rect = None
-        state._filter_mode_list_rect = None
-        state._filter_editor_hovered = -1
-        state._filter_mode_hovered = -1
-        state._filter_editor_scroll = 0
-        state._filter_mode_scroll = 0
-        state._filter_scroll_drag_target = None
-        state._filter_scroll_drag_start_y = 0
-        state._filter_scroll_drag_start_offset = 0.0
-        state._info_panel_scroll = 0
-        state._info_panel_rect = None
-        state._info_panel_max_scroll = 0
-        state._key_modifier_badge_cache = {}
-        state._key_modifier_badge_dirty = True
-        # v0.9 Feature 1: Key labels cleanup
-        state._key_labels_cache = {}
-        state._key_labels_dirty = True
-        # v0.9 Feature 2: Physical modifiers cleanup
-        state._physical_modifiers = {'ctrl': False, 'shift': False, 'alt': False, 'oskey': False}
-        state._modifier_source = 'TOGGLE'
-        # v0.9 Feature 3: Category colors cleanup
-        state._key_categories_cache = {}
-        state._key_categories_dirty = True
-        # v0.9 Feature 4: Undo/redo cleanup
-        state._undo_stack.clear()
-        state._redo_stack.clear()
-        # v0.9 Feature 5: Shortcut search cleanup
-        state._shortcut_search_active = False
-        # Icon feature: cleanup
-        state._key_editor_icons_cache = {}
-        state._key_editor_icons_dirty = True
+        state._reset_all_state()
         from .icons import cleanup_icons
         cleanup_icons()
-        # v0.9 Feature 6: Presets cleanup
-        state._presets_list = []
-        state._active_preset_name = ""
-        state._presets_btn_rect = None
-        state._presets_hovered = False
-        state._preset_dropdown_open = False
-        state._preset_dropdown_rects = []
-        state._preset_dropdown_hovered = -1
-        state._preset_name_input_active = False
-        state._preset_name_text = ""
-
         state._set_running(False)
 
         # Redraw any remaining text-editor areas to clear stale overlay
@@ -260,88 +172,12 @@ def _force_cleanup():
             bpy.types.SpaceTextEditor.draw_handler_remove(state._draw_handle, 'WINDOW')
         except Exception:
             pass
-    state._draw_handle = None
-    state._target_area = None
-    state._target_window = None
-    state._hovered_key_index = -1
-    state._selected_key_index = -1
-    state._key_rects = []
-    state._cached_region_size = (0, 0)
-    state._modifier_rects = []
-    state._active_modifiers = {'ctrl': False, 'shift': False, 'alt': False, 'oskey': False}
-    state._cached_bindings = []
-    state._bindings_key = None
-    state._cached_all_bindings = ([], 0)
-    state._all_bindings_key = None
-    state._modal_state = 'IDLE'
-    state._menu_context.clear()
-    state._conflict_data['conflicts'] = []
-    state._conflict_button_rects.clear()
-    state._conflict_hovered_button = -1
-    state._gpu_menu_items.clear()
-    state._gpu_menu_hovered = -1
-    state._export_button_rect = None
-    state._export_hovered = False
-    state._search_text = ''
-    state._search_active = False
-    state._search_matching_keys = set()
-    state._batch_dirty = True
-    state._hover_transition = 0.0
-    state._hover_transition_target = -1
-    state._last_frame_time = 0.0
-    state._launch_window = None
-    state._close_button_rect = None
-    state._close_hovered = False
-    state._should_close = False
-    state._user_scale = 1.0
-    state._resize_handle_rect = None
-    state._resize_hovered = False
-    state._resize_dragging = False
-    state._bound_keys_cache = set()
-    state._bound_keys_dirty = True
-    state._filter_space_types = {'ALL'}
-    state._filter_modes = {'ALL'}
-    state._filter_editor_list_rects = []
-    state._filter_mode_list_rects = []
-    state._filter_editor_list_rect = None
-    state._filter_mode_list_rect = None
-    state._filter_editor_hovered = -1
-    state._filter_mode_hovered = -1
-    state._filter_editor_scroll = 0
-    state._filter_mode_scroll = 0
-    state._filter_scroll_drag_target = None
-    state._filter_scroll_drag_start_y = 0
-    state._filter_scroll_drag_start_offset = 0.0
-    state._info_panel_scroll = 0
-    state._info_panel_rect = None
-    state._info_panel_max_scroll = 0
-    state._key_modifier_badge_cache = {}
-    state._key_modifier_badge_dirty = True
-    state._key_labels_cache = {}
-    state._key_labels_dirty = True
-    state._physical_modifiers = {'ctrl': False, 'shift': False, 'alt': False, 'oskey': False}
-    state._modifier_source = 'TOGGLE'
-    state._key_categories_cache = {}
-    state._key_categories_dirty = True
-    state._undo_stack.clear()
-    state._redo_stack.clear()
-    state._shortcut_search_active = False
-    state._key_editor_icons_cache = {}
-    state._key_editor_icons_dirty = True
+    state._reset_all_state()
     try:
         from .icons import cleanup_icons
         cleanup_icons()
     except Exception:
         pass
-    state._presets_list = []
-    state._active_preset_name = ""
-    state._presets_btn_rect = None
-    state._presets_hovered = False
-    state._preset_dropdown_open = False
-    state._preset_dropdown_rects = []
-    state._preset_dropdown_hovered = -1
-    state._preset_name_input_active = False
-    state._preset_name_text = ""
     state._set_running(False)
     # Redraw text editors to clear stale overlay
     try:

@@ -38,15 +38,8 @@ def unregister():
             bpy.types.SpaceTextEditor.draw_handler_remove(state._draw_handle, 'WINDOW')
         except Exception:
             pass
-        state._draw_handle = None
-    state._target_area = None
-    state._launch_window = None
+    state._reset_all_state()
     state._visualizer_running = False
-    state._key_rects = []
-    state._cached_region_size = (0, 0)
-    state._modifier_rects = []
-    state._hovered_key_index = -1
-    state._selected_key_index = -1
 
     from .icons import cleanup_icons
     cleanup_icons()
