@@ -66,7 +66,7 @@ def _load_icons():
             continue
         try:
             img = bpy.data.images.load(filepath, check_existing=True)
-            img.colorspace_settings.name = 'sRGB'
+            img.colorspace_settings.name = 'Non-Color'
             img.gl_load()
             tex = gpu.texture.from_image(img)
             _icon_textures[rel_path] = tex

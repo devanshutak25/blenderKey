@@ -31,7 +31,14 @@
       "Read(//c/Users/Devanshu/miniconda3/Library/lib/**)",
       "Bash(python -c \"\nimport os\nos.add_dll_directory\\('C:/Users/Devanshu/miniconda3/Library/bin'\\)\nimport cairocffi\nprint\\('cairocffi loaded!'\\)\n\" 2>&1)",
       "Bash(python -c \"from PIL import features; print\\(features.check\\('raqm'\\)\\); print\\(dir\\(features\\)\\)\" 2>&1; pip install pillow-svg 2>&1 | tail -3)",
-      "Bash(python -c \"\nfrom PIL import Image\nimport os\n\ndirs = [\n    'G:/Personal/blenderKey/keymap_visualizer/icons/editors',\n    'G:/Personal/blenderKey/keymap_visualizer/icons/modes',\n]\nfor d in dirs:\n    print\\(f'\\\\n{os.path.basename\\(d\\)}/'\\)\n    for f in sorted\\(os.listdir\\(d\\)\\):\n        path = os.path.join\\(d, f\\)\n        img = Image.open\\(path\\)\n        has_alpha = img.mode in \\('RGBA', 'LA', 'PA'\\)\n        print\\(f'  {f:25s} {img.size[0]}x{img.size[1]}  {img.mode:5s}  {os.path.getsize\\(path\\):5d} bytes'\\)\n\")"
+      "Bash(python -c \"\nfrom PIL import Image\nimport os\n\ndirs = [\n    'G:/Personal/blenderKey/keymap_visualizer/icons/editors',\n    'G:/Personal/blenderKey/keymap_visualizer/icons/modes',\n]\nfor d in dirs:\n    print\\(f'\\\\n{os.path.basename\\(d\\)}/'\\)\n    for f in sorted\\(os.listdir\\(d\\)\\):\n        path = os.path.join\\(d, f\\)\n        img = Image.open\\(path\\)\n        has_alpha = img.mode in \\('RGBA', 'LA', 'PA'\\)\n        print\\(f'  {f:25s} {img.size[0]}x{img.size[1]}  {img.mode:5s}  {os.path.getsize\\(path\\):5d} bytes'\\)\n\")",
+      "Bash(python -c \"from PIL import Image; img = Image.open\\('G:/Personal/blenderKey/keymap_visualizer/icons/editors/view3d.png'\\); print\\(img.size, img.mode\\)\")",
+      "Bash(python -c \"\nfrom PIL import Image\nimport glob, os\n\nfor png in glob.glob\\('G:/Personal/blenderKey/keymap_visualizer/icons/**/*.png', recursive=True\\):\n    img = Image.open\\(png\\)\n    if img.size != \\(64, 64\\):\n        img_resized = img.resize\\(\\(64, 64\\), Image.LANCZOS\\)\n        img_resized.save\\(png\\)\n        print\\(f'Resized: {os.path.basename\\(png\\)}'\\)\n    else:\n        print\\(f'Already 64x64: {os.path.basename\\(png\\)}'\\)\n\")",
+      "Bash(python -c \"\nfrom PIL import Image\nimport glob\nsizes = set\\(\\)\nfor png in glob.glob\\('G:/Personal/blenderKey/keymap_visualizer/icons/**/*.png', recursive=True\\):\n    img = Image.open\\(png\\)\n    sizes.add\\(\\(img.size, img.mode\\)\\)\nprint\\(f'All icons: {sizes}'\\)\nprint\\(f'Count: {len\\(list\\(glob.glob\\(\\\\\"G:/Personal/blenderKey/keymap_visualizer/icons/**/*.png\\\\\", recursive=True\\)\\)\\)}'\\)\n\")",
+      "Bash(curl -sL \"https://projects.blender.org/blender/blender/src/branch/main/release/datafiles/icons_svg\" | grep -oP '[a-zA-Z0-9_-]+\\\\.svg' | sort -u)",
+      "Bash(curl -sL \"https://projects.blender.org/blender/blender/src/branch/main/release/datafiles/icons_svg\" | grep -oE '[a-zA-Z0-9_-]+\\\\.svg' | sort -u)",
+      "Bash(curl -sL -o /tmp/blender_icons.html \"https://projects.blender.org/blender/blender/src/branch/main/release/datafiles/icons_svg\")",
+      "Read(//tmp/**)"
     ]
   }
 }

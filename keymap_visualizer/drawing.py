@@ -206,8 +206,16 @@ def _draw_icon(texture, x, y, size):
     if texture is None:
         return
     try:
-        from gpu_extras.presets import draw_texture_2d
-        draw_texture_2d(texture, (x, y), size, size)
+        import gpu
+        from gpu_extras.batch import batch_for_shader
+        shader = gpu.shader.from_builtin('IMAGE')
+        coords = ((x, y), (x + size, y), (x + size, y + size), (x, y + size))
+        texcoords = ((0, 0), (1, 0), (1, 1), (0, 1))
+        batch = batch_for_shader(shader, 'TRI_FAN', {"pos": coords, "texCoord": texcoords})
+        gpu.state.blend_set('ALPHA')
+        shader.bind()
+        shader.uniform_sampler("image", texture)
+        batch.draw(shader)
     except Exception:
         pass
 
