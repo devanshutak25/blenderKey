@@ -85,7 +85,7 @@ def _get_condensed_font():
 from .keymap_data import (
     _get_bindings_for_key, _get_all_bindings_for_key, _compute_bound_keys,
     _compute_key_labels, _compute_key_categories, _compute_key_editor_icons,
-    _compute_key_modifier_badges,
+    _compute_key_modifier_badges, _humanize_op_id,
 )
 from .icons import (
     _load_icons, get_editor_icon, get_mode_icon, get_km_icon,
@@ -417,11 +417,13 @@ def _draw_filter_lists(shader_uniform, font_id, font_size, unit_px, colors):
         if panel_rect is None:
             continue
         px, py, pw, ph = panel_rect
+        scroll_offset = state._filter_editor_scroll if is_editor else state._filter_mode_scroll
         # Panel background
         _draw_rect(shader_uniform, px, py, pw, ph, colors['panel_bg'])
         _draw_rect_border(shader_uniform, px, py, pw, ph, colors['border'])
 
         # Header
+        header_h = max(16, unit_px * 0.35)
         if unit_px >= 20:
             blf.size(font_id, list_font_size)
             blf.color(font_id, *colors['text'])
@@ -429,8 +431,14 @@ def _draw_filter_lists(shader_uniform, font_id, font_size, unit_px, colors):
             blf.position(font_id, px + (pw - tw) / 2, py + ph - list_font_size - 3, 0)
             blf.draw(font_id, header_text)
 
-        # Items
+        # Items (apply scroll offset)
+        item_h = max(20, unit_px * 0.5)
         for di, (dlabel, dvalue, dx, dy, dw, dh) in enumerate(item_rects):
+            actual_y = dy + scroll_offset
+            # Clip: skip items outside panel bounds (below header, above bottom)
+            if actual_y + dh <= py or actual_y >= py + ph - header_h:
+                continue
+
             is_selected = dvalue in selected_set
             is_hovered = (di == hovered_idx)
 
@@ -440,7 +448,7 @@ def _draw_filter_lists(shader_uniform, font_id, font_size, unit_px, colors):
                 dcol = (0.22, 0.28, 0.35, 1.0)
             else:
                 dcol = colors['panel_bg']
-            _draw_rect(shader_uniform, dx, dy, dw, dh, dcol)
+            _draw_rect(shader_uniform, dx, actual_y, dw, dh, dcol)
 
             if unit_px >= 20:
                 blf.size(font_id, list_font_size)
@@ -452,7 +460,7 @@ def _draw_filter_lists(shader_uniform, font_id, font_size, unit_px, colors):
                     icon_tex = get_mode_icon(dvalue)
                 icon_size = int(dh * 0.65)
                 icon_x = dx + 3
-                icon_y = dy + (dh - icon_size) / 2
+                icon_y = actual_y + (dh - icon_size) / 2
                 _draw_icon(icon_tex, icon_x, icon_y, icon_size)
                 text_x = icon_x + icon_size + 3 if icon_tex else dx + 6
                 tw, th = blf.dimensions(font_id, dlabel)
@@ -461,8 +469,23 @@ def _draw_filter_lists(shader_uniform, font_id, font_size, unit_px, colors):
                 while tw > avail_w and len(display) > 3:
                     display = display[:-4] + "..."
                     tw, th = blf.dimensions(font_id, display)
-                blf.position(font_id, text_x, dy + (dh - th) / 2, 0)
+                blf.position(font_id, text_x, actual_y + (dh - th) / 2, 0)
                 blf.draw(font_id, display)
+
+        # Scrollbar
+        total_content_h = len(item_rects) * item_h + header_h
+        if total_content_h > ph:
+            max_scroll = total_content_h - ph
+            track_x = px + pw - 4
+            track_w = 3
+            track_y = py
+            track_h = ph
+            _draw_rect(shader_uniform, track_x, track_y, track_w, track_h, (0.15, 0.15, 0.15, 0.5))
+            visible_ratio = ph / total_content_h
+            thumb_h = max(15, track_h * visible_ratio)
+            scroll_ratio = scroll_offset / max_scroll if max_scroll > 0 else 0
+            thumb_y = track_y + track_h - thumb_h - scroll_ratio * (track_h - thumb_h)
+            _draw_rect(shader_uniform, track_x, thumb_y, track_w, thumb_h, (0.5, 0.5, 0.5, 0.7))
 
 
 _draw_callback_count = 0
@@ -797,10 +820,6 @@ def _draw_callback():
                     tw, th = blf.dimensions(font_id, badge_text)
                     badge_x = kr.x + kr.w - tw - 3
                     badge_y = kr.y + 3
-                    badge_bg_w = tw + 4
-                    badge_bg_h = th + 2
-                    _draw_rect(shader_uniform, badge_x - 2, badge_y - 1,
-                               badge_bg_w, badge_bg_h, (0.2, 0.2, 0.2, 0.7))
                     blf.color(font_id, 0.9, 0.9, 0.9, 0.85)
                     blf.position(font_id, badge_x, badge_y, 0)
                     blf.draw(font_id, badge_text)
@@ -984,8 +1003,16 @@ def _draw_callback():
             kr = state._key_rects[active_idx]
             bindings, n_matching = _get_all_bindings_for_key(kr.event_type)
 
+            # Header: big key name + dim filter summary on same line
+            header_font_size = max(12, int(unit_px * 0.38))
+            header_x = info_x + 10
+            header_y = info_y + info_h - header_font_size - 5
+            blf.size(font_id, header_font_size)
             blf.color(font_id, *colors['text'])
-            header = f"Key: {kr.label} ({kr.event_type})"
+            blf.position(font_id, header_x, header_y, 0)
+            blf.draw(font_id, kr.label)
+            tw_label, _ = blf.dimensions(font_id, kr.label)
+
             header_has_filter = ('ALL' not in state._filter_space_types or 'ALL' not in state._filter_modes)
             if header_has_filter:
                 filter_parts = []
@@ -993,18 +1020,20 @@ def _draw_callback():
                     filter_parts.append(_get_filter_summary('EDITOR'))
                 if 'ALL' not in state._filter_modes:
                     filter_parts.append(_get_filter_summary('MODE'))
-                header += f"  [{' / '.join(filter_parts)}]"
-            header_x = info_x + 10
-            header_y = info_y + info_h - info_font_size - 5
-            blf.position(font_id, header_x, header_y, 0)
-            blf.draw(font_id, header)
+                filter_summary_text = ' / '.join(filter_parts)
+                blf.size(font_id, info_font_size)
+                blf.color(font_id, *colors['text_dim'])
+                blf.position(font_id, header_x + tw_label + 10, header_y, 0)
+                blf.draw(font_id, filter_summary_text)
+
+            blf.size(font_id, info_font_size)
 
             if bindings:
                 line_h = info_font_size + 3
                 col_w = (info_w - 30) / 2
                 col_left_x = info_x + 15
                 col_right_x = info_x + 15 + col_w + 10
-                max_rows = max(1, int((info_h - info_font_size - 15) / line_h))
+                max_rows = max(1, int((info_h - header_font_size - 15) / line_h))
                 total_shown = min(len(bindings), max_rows * 2)
 
                 bind_icon_size = int(info_font_size * 1.0)
@@ -1012,8 +1041,9 @@ def _draw_callback():
                     km_name, op_id, mod_str, kmi, is_active = bindings[j][:5]
                     km_space_type = bindings[j][5] if len(bindings[j]) > 5 else ''
                     prefix = f"[{mod_str}] " if mod_str else ""
-                    active_tag = "" if is_active else "[inactive] "
-                    line = f"{active_tag}{prefix}{op_id}  ({km_name})"
+                    active_tag = "" if is_active else "[off] "
+                    human_name = _humanize_op_id(op_id)
+                    line_text = f"{active_tag}{prefix}{human_name}"
 
                     if not is_active:
                         blf.color(font_id, 0.5, 0.5, 0.5, 0.6)
@@ -1025,15 +1055,25 @@ def _draw_callback():
                     col = j // max_rows
                     row = j % max_rows
                     cx = col_left_x if col == 0 else col_right_x
-                    ly = info_y + info_h - info_font_size - 5 - (row + 1) * line_h
+                    ly = info_y + info_h - header_font_size - 5 - (row + 1) * line_h
                     if ly < info_y + 5:
                         break
-                    # Draw editor icon for this binding
+                    # Draw main text
+                    blf.position(font_id, cx, ly, 0)
+                    blf.draw(font_id, line_text)
+                    tw_main, _ = blf.dimensions(font_id, line_text)
+
+                    # Draw separator + editor name (dim)
+                    separator = " | "
+                    blf.color(font_id, *colors['text_dim'])
+                    blf.position(font_id, cx + tw_main, ly, 0)
+                    blf.draw(font_id, separator + km_name)
+                    tw_sep, _ = blf.dimensions(font_id, separator + km_name)
+
+                    # Icon after editor name
                     bind_icon_tex = get_km_icon(km_space_type)
-                    _draw_icon(bind_icon_tex, cx, ly - 1, bind_icon_size)
-                    text_offset = bind_icon_size + 3 if bind_icon_tex else 0
-                    blf.position(font_id, cx + text_offset, ly, 0)
-                    blf.draw(font_id, line)
+                    icon_x = cx + tw_main + tw_sep + 3
+                    _draw_icon(bind_icon_tex, icon_x, ly - 1, bind_icon_size)
                 if len(bindings) > total_shown:
                     blf.color(font_id, *colors['text_dim'])
                     ly = info_y + 5

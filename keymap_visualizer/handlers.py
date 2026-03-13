@@ -21,6 +21,16 @@ from .drawing import _build_gpu_menu, _build_preset_dropdown
 from .constants import _CAPTURABLE_KEYS, MODIFIER_KEY_TO_DICT
 
 
+def _get_unit_px():
+    """Compute current unit_px from cached region size and user scale."""
+    rw, rh = state._cached_region_size
+    if rw == 0 or rh == 0:
+        return 40  # fallback
+    unit_from_w = rw / 24
+    unit_from_h = rh / 12
+    return min(unit_from_w, unit_from_h) * state._user_scale
+
+
 # ---------------------------------------------------------------------------
 # v0.9 Feature 2: Physical modifier reactivity
 # ---------------------------------------------------------------------------
@@ -104,6 +114,71 @@ def _handle_idle(context, event):
         if state._target_area is not None:
             state._target_area.tag_redraw()
         return {'RUNNING_MODAL'}
+
+    # Scroll drag handling (middle mouse)
+    if state._filter_scroll_drag_target is not None:
+        if event.type == 'MOUSEMOVE':
+            dy = state._filter_scroll_drag_start_y - event.mouse_region_y
+            new_scroll = state._filter_scroll_drag_start_offset + dy
+            item_h = max(20, _get_unit_px() * 0.5)
+            header_h = max(16, _get_unit_px() * 0.35)
+            if state._filter_scroll_drag_target == 'EDITOR':
+                total_h = len(state._filter_editor_list_rects) * item_h + header_h
+                px, py, pw, ph = state._filter_editor_list_rect
+                max_scroll = max(0, total_h - ph)
+                state._filter_editor_scroll = max(0, min(max_scroll, new_scroll))
+            else:
+                total_h = len(state._filter_mode_list_rects) * item_h + header_h
+                px, py, pw, ph = state._filter_mode_list_rect
+                max_scroll = max(0, total_h - ph)
+                state._filter_mode_scroll = max(0, min(max_scroll, new_scroll))
+            if state._target_area is not None:
+                state._target_area.tag_redraw()
+            return {'RUNNING_MODAL'}
+        if event.type == 'MIDDLEMOUSE' and event.value == 'RELEASE':
+            state._filter_scroll_drag_target = None
+            return {'RUNNING_MODAL'}
+
+    # Mouse wheel scrolling for list panels
+    if event.type in ('WHEELUPMOUSE', 'WHEELDOWNMOUSE'):
+        mx, my = event.mouse_region_x, event.mouse_region_y
+        item_h = max(20, _get_unit_px() * 0.5)
+        header_h = max(16, _get_unit_px() * 0.35)
+        scroll_step = item_h
+        for panel_rect, item_rects, is_editor in [
+            (state._filter_editor_list_rect, state._filter_editor_list_rects, True),
+            (state._filter_mode_list_rect, state._filter_mode_list_rects, False),
+        ]:
+            if panel_rect is None:
+                continue
+            px, py, pw, ph = panel_rect
+            if px <= mx <= px + pw and py <= my <= py + ph:
+                total_h = len(item_rects) * item_h + header_h
+                max_scroll = max(0, total_h - ph)
+                delta = -scroll_step if event.type == 'WHEELUPMOUSE' else scroll_step
+                if is_editor:
+                    state._filter_editor_scroll = max(0, min(max_scroll, state._filter_editor_scroll + delta))
+                else:
+                    state._filter_mode_scroll = max(0, min(max_scroll, state._filter_mode_scroll + delta))
+                if state._target_area is not None:
+                    state._target_area.tag_redraw()
+                return {'RUNNING_MODAL'}
+
+    # Middle-click drag start for list panels
+    if event.type == 'MIDDLEMOUSE' and event.value == 'PRESS':
+        mx, my = event.mouse_region_x, event.mouse_region_y
+        for panel_rect, scroll_val, target_name in [
+            (state._filter_editor_list_rect, state._filter_editor_scroll, 'EDITOR'),
+            (state._filter_mode_list_rect, state._filter_mode_scroll, 'MODE'),
+        ]:
+            if panel_rect is None:
+                continue
+            px, py, pw, ph = panel_rect
+            if px <= mx <= px + pw and py <= my <= py + ph:
+                state._filter_scroll_drag_target = target_name
+                state._filter_scroll_drag_start_y = my
+                state._filter_scroll_drag_start_offset = scroll_val
+                return {'RUNNING_MODAL'}
 
     if event.type == 'MOUSEMOVE':
         mx, my = event.mouse_region_x, event.mouse_region_y

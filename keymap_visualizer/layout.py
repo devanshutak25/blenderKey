@@ -153,13 +153,9 @@ def _compute_keyboard_layout(region_width, region_height):
     state._filter_editor_list_rects = []
     for i, (value, label) in enumerate(SPACE_TYPE_FILTERS):
         iy = panel_y + panel_h - header_h - (i + 1) * item_h
-        if iy < panel_y:
-            break
         state._filter_editor_list_rects.append((label, value, panel_start_x, iy, editor_list_w, item_h))
 
     state._filter_mode_list_rects = []
     for i, (value, label) in enumerate(MODE_FILTERS):
         iy = panel_y + panel_h - header_h - (i + 1) * item_h
-        if iy < panel_y:
-            break
         state._filter_mode_list_rects.append((label, value, mode_list_x, iy, mode_list_w, item_h))

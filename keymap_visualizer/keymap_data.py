@@ -8,6 +8,16 @@ from . import state
 from .constants import OPERATOR_ABBREVIATIONS, OPERATOR_CATEGORIES
 
 
+def _humanize_op_id(idname):
+    """'mesh.extrude_region_move' -> 'Mesh: Extrude Region Move'"""
+    parts = idname.split('.')
+    if len(parts) == 2:
+        category = parts[0].title()
+        name = parts[1].replace('_', ' ').title()
+        return f"{category}: {name}"
+    return idname.replace('_', ' ').title()
+
+
 def _km_passes_filter(km):
     """Check if a keymap passes the current editor/mode filters."""
     if 'ALL' not in state._filter_space_types:

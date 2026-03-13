@@ -69,19 +69,37 @@ def _hit_test_resize(mx, my):
 
 def _hit_test_editor_list(mx, my):
     """Returns item index in state._filter_editor_list_rects or -1."""
+    # Check if cursor is within the panel bounds first
+    if state._filter_editor_list_rect is None:
+        return -1
+    px, py, pw, ph = state._filter_editor_list_rect
+    if not (px <= mx <= px + pw and py <= my <= py + ph):
+        return -1
+    scroll = state._filter_editor_scroll
     for i, item in enumerate(state._filter_editor_list_rects):
         label, value, x, y, w, h = item
-        if x <= mx <= x + w and y <= my <= y + h:
-            return i
+        actual_y = y + scroll
+        if x <= mx <= x + w and actual_y <= my <= actual_y + h:
+            # Ensure the item is visible within the panel
+            if actual_y >= py and actual_y + h <= py + ph:
+                return i
     return -1
 
 
 def _hit_test_mode_list(mx, my):
     """Returns item index in state._filter_mode_list_rects or -1."""
+    if state._filter_mode_list_rect is None:
+        return -1
+    px, py, pw, ph = state._filter_mode_list_rect
+    if not (px <= mx <= px + pw and py <= my <= py + ph):
+        return -1
+    scroll = state._filter_mode_scroll
     for i, item in enumerate(state._filter_mode_list_rects):
         label, value, x, y, w, h = item
-        if x <= mx <= x + w and y <= my <= y + h:
-            return i
+        actual_y = y + scroll
+        if x <= mx <= x + w and actual_y <= my <= actual_y + h:
+            if actual_y >= py and actual_y + h <= py + ph:
+                return i
     return -1
 
 

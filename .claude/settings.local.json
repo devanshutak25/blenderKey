@@ -48,7 +48,9 @@
       "Bash(python -c \"\nfrom PIL import Image\nimport glob, os\nfor png in sorted\\(glob.glob\\('G:/Personal/blenderKey/keymap_visualizer/icons/**/*.png', recursive=True\\)\\):\n    img = Image.open\\(png\\)\n    name = os.path.basename\\(os.path.dirname\\(png\\)\\) + '/' + os.path.basename\\(png\\)\n    print\\(f'{name}: {img.size} {img.mode}'\\)\n\")",
       "Bash(python -m py_compile keymap_visualizer/state.py && python -m py_compile keymap_visualizer/hit_testing.py && python -m py_compile keymap_visualizer/layout.py && python -m py_compile keymap_visualizer/handlers.py && echo \"All compiled OK\")",
       "Bash(python -m py_compile keymap_visualizer/operators.py && python -m py_compile keymap_visualizer/keymap_data.py && echo \"All compiled OK\")",
-      "Bash(python -m py_compile keymap_visualizer/drawing.py && echo \"OK\")"
+      "Bash(python -m py_compile keymap_visualizer/drawing.py && echo \"OK\")",
+      "Bash(cd G:/Personal/blenderKey && python -m py_compile keymap_visualizer/state.py && python -m py_compile keymap_visualizer/layout.py && python -m py_compile keymap_visualizer/hit_testing.py && python -m py_compile keymap_visualizer/keymap_data.py && python -m py_compile keymap_visualizer/handlers.py && python -m py_compile keymap_visualizer/operators.py && echo \"All OK\")",
+      "Bash(cd G:/Personal/blenderKey && python -m py_compile keymap_visualizer/drawing.py && echo \"OK\")"
     ]
   }
 }
