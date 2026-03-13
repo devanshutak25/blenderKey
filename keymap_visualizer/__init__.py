@@ -8,7 +8,7 @@ bl_info = {
     "author": "blenderKey",
     "version": (0, 9, 0),
     "blender": (4, 2, 0),
-    "location": "3D Viewport > Header",
+    "location": "Edit Menu (Top Bar)",
     "description": "Visual keyboard-based keymap editor",
     "category": "System",
 }
@@ -28,7 +28,7 @@ _classes = (
 def register():
     for cls in _classes:
         bpy.utils.register_class(cls)
-    bpy.types.VIEW3D_HT_header.append(_draw_header_button)
+    bpy.types.TOPBAR_MT_edit.append(_draw_header_button)
 
 
 def unregister():
@@ -44,7 +44,7 @@ def unregister():
     from .icons import cleanup_icons
     cleanup_icons()
 
-    bpy.types.VIEW3D_HT_header.remove(_draw_header_button)
+    bpy.types.TOPBAR_MT_edit.remove(_draw_header_button)
     for cls in reversed(_classes):
         bpy.utils.unregister_class(cls)
 
