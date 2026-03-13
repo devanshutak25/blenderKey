@@ -2,10 +2,13 @@
 Keymap Visualizer – Addon Preferences
 """
 
+import os as _os
 import bpy
 from bpy.props import StringProperty, EnumProperty, FloatVectorProperty, BoolProperty
 from . import state
 from .constants import CATEGORY_COLORS
+
+_addon_dir = _os.path.dirname(_os.path.abspath(__file__))
 
 
 def _invalidate(self, ctx):
@@ -20,7 +23,7 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
         name="Export Path",
         description="File path for keymap export",
         subtype='FILE_PATH',
-        default="//custom_keymap.py",
+        default=_os.path.join(_addon_dir, "exports", "custom_keymap.py"),
     )
     export_scope: EnumProperty(
         name="Export Scope",
@@ -29,6 +32,20 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
             ('ALL', "All", "Export all keybindings"),
         ],
         default='MODIFIED',
+    )
+
+    # --- Fonts ---
+    main_font_path: StringProperty(
+        name="Key Label Font",
+        description="TTF font for key labels (leave empty for Blender default)",
+        subtype='FILE_PATH',
+        default="",
+    )
+    condensed_font_path: StringProperty(
+        name="Command Label Font",
+        description="TTF font for command labels (leave empty for bundled Roboto Condensed)",
+        subtype='FILE_PATH',
+        default="",
     )
 
     # --- Key colors ---
@@ -265,7 +282,7 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
         name="Presets Folder",
         description="Directory to store keymap presets",
         subtype='DIR_PATH',
-        default="//keymap_presets/",
+        default=_os.path.join(_addon_dir, "presets"),
     )
 
     def draw(self, context):
@@ -281,6 +298,12 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
         box = layout.box()
         box.label(text="Presets")
         box.prop(self, "presets_directory")
+
+        # Fonts
+        box = layout.box()
+        box.label(text="Fonts")
+        box.prop(self, "main_font_path")
+        box.prop(self, "condensed_font_path")
 
         # Key colors
         box = layout.box()

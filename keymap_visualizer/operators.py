@@ -54,6 +54,15 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
             self._cleanup(context)
             return {'CANCELLED'}
 
+        # Auto-close if target area is no longer a TEXT_EDITOR
+        try:
+            if state._target_area is not None and state._target_area.type != 'TEXT_EDITOR':
+                self._cleanup(context)
+                return {'CANCELLED'}
+        except ReferenceError:
+            self._cleanup(context)
+            return {'CANCELLED'}
+
         # Feature 1: Close button signal
         if state._should_close:
             self._cleanup(context)

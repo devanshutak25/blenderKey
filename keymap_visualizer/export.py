@@ -117,7 +117,7 @@ def _do_export():
         filepath = prefs.export_path
         scope = prefs.export_scope
     except Exception:
-        filepath = "//custom_keymap.py"
+        filepath = os.path.join(os.path.dirname(__file__), "exports", "custom_keymap.py")
         scope = 'MODIFIED'
 
     try:

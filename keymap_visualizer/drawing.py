@@ -29,26 +29,53 @@ from .constants import (
 # ---------------------------------------------------------------------------
 _blender_font_id = 0
 _condensed_font_id = 0
+_loaded_main_path = ""
+_loaded_condensed_path = ""
 
 
 def _ensure_font_loaded():
-    global _blender_font_id, _condensed_font_id
-    if _blender_font_id != 0:
-        return _blender_font_id
-    bfont_dir = os.path.join(bpy.utils.resource_path('LOCAL'), "datafiles", "fonts")
-    bfont_path = os.path.join(bfont_dir, "bfont.ttf")
-    if not os.path.exists(bfont_path):
-        bfont_path = os.path.join(bfont_dir, "bmonofont-i18n.ttf")
-    if os.path.exists(bfont_path):
-        loaded = blf.load(bfont_path)
-        if loaded != -1:
-            _blender_font_id = loaded
-    # Load condensed font for command labels
-    condensed_path = os.path.join(os.path.dirname(__file__), "fonts", "RobotoCondensed-Regular.ttf")
-    if os.path.exists(condensed_path):
-        loaded = blf.load(condensed_path)
-        if loaded != -1:
-            _condensed_font_id = loaded
+    global _blender_font_id, _condensed_font_id, _loaded_main_path, _loaded_condensed_path
+
+    # Read user prefs
+    try:
+        prefs = bpy.context.preferences.addons["keymap_visualizer"].preferences
+        user_main = prefs.main_font_path
+        user_condensed = prefs.condensed_font_path
+    except Exception:
+        user_main = ""
+        user_condensed = ""
+
+    # Determine effective main font path
+    if user_main and os.path.isfile(bpy.path.abspath(user_main)):
+        main_path = bpy.path.abspath(user_main)
+    else:
+        bfont_dir = os.path.join(bpy.utils.resource_path('LOCAL'), "datafiles", "fonts")
+        main_path = os.path.join(bfont_dir, "bfont.ttf")
+        if not os.path.exists(main_path):
+            main_path = os.path.join(bfont_dir, "bmonofont-i18n.ttf")
+
+    # Determine effective condensed font path
+    if user_condensed and os.path.isfile(bpy.path.abspath(user_condensed)):
+        condensed_path = bpy.path.abspath(user_condensed)
+    else:
+        condensed_path = os.path.join(os.path.dirname(__file__), "fonts", "RobotoCondensed-Regular.ttf")
+
+    # Reload main font if path changed or not yet loaded
+    if main_path != _loaded_main_path or _blender_font_id == 0:
+        if os.path.exists(main_path):
+            loaded = blf.load(main_path)
+            if loaded != -1:
+                _blender_font_id = loaded
+                _loaded_main_path = main_path
+
+    # Reload condensed font if path changed or not yet loaded
+    if condensed_path != _loaded_condensed_path or _condensed_font_id == 0:
+        if os.path.exists(condensed_path):
+            loaded = blf.load(condensed_path)
+            if loaded != -1:
+                _condensed_font_id = loaded
+                _loaded_condensed_path = condensed_path
+
     return _blender_font_id
 
 

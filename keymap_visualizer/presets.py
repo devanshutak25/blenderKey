@@ -16,7 +16,7 @@ def _get_presets_dir():
         prefs = bpy.context.preferences.addons["keymap_visualizer"].preferences
         raw = prefs.presets_directory
     except Exception:
-        raw = "//keymap_presets/"
+        raw = os.path.join(os.path.dirname(__file__), "presets")
     abs_path = bpy.path.abspath(raw)
     if not abs_path or abs_path == raw:
         # Fallback to user config dir
