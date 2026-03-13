@@ -537,27 +537,28 @@ def _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_p
         if (is_editor and state._nav_focus == 'EDITOR_LIST') or (not is_editor and state._nav_focus == 'MODE_LIST'):
             _draw_rect_border(shader_uniform, px, py, pw, ph, colors['border_highlight'])
 
-        # Scissor clip all panel content to prevent overflow
-        with _scissor_clip(px, py, pw, ph):
-            # Header
-            header_h = max(16, unit_px * 0.35)
-            if unit_px >= 20:
-                blf.size(font_id, list_font_size)
-                blf.color(font_id, *colors['text'])
-                tw, th = blf.dimensions(font_id, header_text)
-                blf.position(font_id, px + (pw - tw) / 2, py + ph - list_font_size - sp2, 0)
-                blf.draw(font_id, header_text)
+        # Header
+        header_h = max(16, unit_px * 0.35)
+        if unit_px >= 20:
+            blf.size(font_id, list_font_size)
+            blf.color(font_id, *colors['text'])
+            tw, th = blf.dimensions(font_id, header_text)
+            blf.position(font_id, px + (pw - tw) / 2, py + ph - list_font_size - sp2, 0)
+            blf.draw(font_id, header_text)
 
-            # M4: Empty state
-            if not item_rects:
-                blf.size(font_id, list_font_size)
-                blf.color(font_id, *colors['text_dim'])
-                no_items = "No matches"
-                tw_e, th_e = blf.dimensions(font_id, no_items)
-                blf.position(font_id, px + (pw - tw_e) / 2, py + ph / 2 - th_e / 2, 0)
-                blf.draw(font_id, no_items)
-                continue
+        # M4: Empty state
+        if not item_rects:
+            blf.size(font_id, list_font_size)
+            blf.color(font_id, *colors['text_dim'])
+            no_items = "No matches"
+            tw_e, th_e = blf.dimensions(font_id, no_items)
+            blf.position(font_id, px + (pw - tw_e) / 2, py + ph / 2 - th_e / 2, 0)
+            blf.draw(font_id, no_items)
+            continue
 
+        # Scissor clip only the scrollable content area (below header)
+        content_top_y = py + ph - header_h
+        with _scissor_clip(px, py, pw, int(content_top_y - py)):
             # Items (apply scroll offset)
             item_h = max(20, unit_px * 0.5)
             for di, (dlabel, dvalue, dx, dy, dw, dh) in enumerate(item_rects):
@@ -1191,79 +1192,79 @@ def _draw_callback():
         # Store rect for hit testing (Issue #3)
         state._info_panel_rect = (info_x, info_y, info_w, info_h)
 
-        # Scissor clip all info panel content to prevent overflow
-        with _scissor_clip(info_x, info_y, info_w, info_h):
-            active_idx = state._selected_key_index if state._selected_key_index >= 0 else state._hovered_key_index
-            info_font_size = max(10, int(unit_px * 0.28))
+        active_idx = state._selected_key_index if state._selected_key_index >= 0 else state._hovered_key_index
+        info_font_size = max(10, int(unit_px * 0.28))
+        blf.size(font_id, info_font_size)
+
+        if 0 <= active_idx < len(state._key_rects):
+            kr = state._key_rects[active_idx]
+            bindings, n_matching = _get_all_bindings_for_key(kr.event_type)
+
+            # Header: big key name + dim filter summary (Issue #5, #8)
+            header_font_size = max(12, int(unit_px * 0.38))
+            header_x = info_x + sp5
+            header_y = info_y + info_h - header_font_size - sp3
+            blf.size(font_id, header_font_size)
+            blf.color(font_id, *colors['text'])
+            blf.position(font_id, header_x, header_y, 0)
+            blf.draw(font_id, kr.label)
+            tw_label, _ = blf.dimensions(font_id, kr.label)
+
+            header_has_filter = ('ALL' not in state._filter_space_types or 'ALL' not in state._filter_modes)
+            if header_has_filter:
+                filter_parts = []
+                if 'ALL' not in state._filter_space_types:
+                    filter_parts.append(_get_filter_summary('EDITOR'))
+                if 'ALL' not in state._filter_modes:
+                    filter_parts.append(_get_filter_summary('MODE'))
+                filter_summary_text = ' / '.join(filter_parts)
+                blf.size(font_id, info_font_size)
+                blf.color(font_id, *colors['text_dim'])
+                blf.position(font_id, header_x + tw_label + sp5, header_y, 0)
+                blf.draw(font_id, filter_summary_text)
+
+            # Separator line below header (Issue #5, #8)
+            sep_y = header_y - sp3
+            _draw_rect(shader_uniform, info_x + sp3, sep_y, info_w - sp3 * 2, 1, colors['border'])
+
             blf.size(font_id, info_font_size)
 
-            if 0 <= active_idx < len(state._key_rects):
-                kr = state._key_rects[active_idx]
-                bindings, n_matching = _get_all_bindings_for_key(kr.event_type)
+            if bindings:
+                # Single-column layout with scrolling (Issues #2, #3, #12)
+                # Group bindings by (op_id, mod_str) for collapsible display
+                groups = _group_bindings(bindings, n_matching)
+                line_h = info_font_size + 3
+                content_top = sep_y - sp3
+                content_bottom = info_y + sp3
+                visible_h = content_top - content_bottom
+                max_visible_rows = max(1, int(visible_h / line_h))
 
-                # Header: big key name + dim filter summary (Issue #5, #8)
-                header_font_size = max(12, int(unit_px * 0.38))
-                header_x = info_x + sp5
-                header_y = info_y + info_h - header_font_size - sp3
-                blf.size(font_id, header_font_size)
-                blf.color(font_id, *colors['text'])
-                blf.position(font_id, header_x, header_y, 0)
-                blf.draw(font_id, kr.label)
-                tw_label, _ = blf.dimensions(font_id, kr.label)
+                # Count total visible rows (depends on expand state)
+                total_rows = 0
+                for group_key, human_name, mod_str, entries, best_rank in groups:
+                    total_rows += 1  # header row
+                    if len(entries) > 1 and group_key in state._info_panel_expanded_groups:
+                        total_rows += len(entries)  # sub-rows
 
-                header_has_filter = ('ALL' not in state._filter_space_types or 'ALL' not in state._filter_modes)
-                if header_has_filter:
-                    filter_parts = []
-                    if 'ALL' not in state._filter_space_types:
-                        filter_parts.append(_get_filter_summary('EDITOR'))
-                    if 'ALL' not in state._filter_modes:
-                        filter_parts.append(_get_filter_summary('MODE'))
-                    filter_summary_text = ' / '.join(filter_parts)
-                    blf.size(font_id, info_font_size)
-                    blf.color(font_id, *colors['text_dim'])
-                    blf.position(font_id, header_x + tw_label + sp5, header_y, 0)
-                    blf.draw(font_id, filter_summary_text)
+                info_max_scroll = max(0, (total_rows * line_h) - visible_h)
+                state._info_panel_max_scroll = info_max_scroll
+                # Clamp scroll
+                state._info_panel_scroll = max(0, min(state._info_panel_scroll, info_max_scroll))
+                has_scrollbar = total_rows > max_visible_rows
+                scrollbar_w = 8 if has_scrollbar else 0
+                avail_text_w = info_w - sp5 * 2 - scrollbar_w
 
-                # Separator line below header (Issue #5, #8)
-                sep_y = header_y - sp3
-                _draw_rect(shader_uniform, info_x + sp3, sep_y, info_w - sp3 * 2, 1, colors['border'])
+                bind_icon_size = int(info_font_size * 1.0)
+                cx = info_x + sp5
+                indent = int(info_font_size * 1.2)
 
-                blf.size(font_id, info_font_size)
+                scroll_offset = state._info_panel_scroll
 
-                if bindings:
-                    # Single-column layout with scrolling (Issues #2, #3, #12)
-                    # Group bindings by (op_id, mod_str) for collapsible display
-                    groups = _group_bindings(bindings, n_matching)
-                    line_h = info_font_size + 3
-                    content_top = sep_y - sp3
-                    content_bottom = info_y + sp3
-                    visible_h = content_top - content_bottom
-                    max_visible_rows = max(1, int(visible_h / line_h))
+                # Clear header rects for this frame
+                state._info_panel_group_header_rects = []
 
-                    # Count total visible rows (depends on expand state)
-                    total_rows = 0
-                    for group_key, human_name, mod_str, entries, best_rank in groups:
-                        total_rows += 1  # header row
-                        if len(entries) > 1 and group_key in state._info_panel_expanded_groups:
-                            total_rows += len(entries)  # sub-rows
-
-                    info_max_scroll = max(0, (total_rows * line_h) - visible_h)
-                    state._info_panel_max_scroll = info_max_scroll
-                    # Clamp scroll
-                    state._info_panel_scroll = max(0, min(state._info_panel_scroll, info_max_scroll))
-                    has_scrollbar = total_rows > max_visible_rows
-                    scrollbar_w = 8 if has_scrollbar else 0
-                    avail_text_w = info_w - sp5 * 2 - scrollbar_w
-
-                    bind_icon_size = int(info_font_size * 1.0)
-                    cx = info_x + sp5
-                    indent = int(info_font_size * 1.2)
-
-                    scroll_offset = state._info_panel_scroll
-
-                    # Clear header rects for this frame
-                    state._info_panel_group_header_rects = []
-
+                # Scissor clip only the scrollable content area (below header separator)
+                with _scissor_clip(info_x, int(content_bottom), info_w, int(content_top - content_bottom)):
                     row = 0
                     for group_key, human_name, mod_str, entries, best_rank in groups:
                         ly = content_top - (row + 1) * line_h + scroll_offset
@@ -1393,19 +1394,19 @@ def _draw_callback():
                         if scroll_offset < info_max_scroll:
                             _draw_fade_gradient(shader_smooth, cx, fade_x2,
                                                 content_bottom, fade_h, colors['panel_bg'], 'UP')
-                else:
-                    state._info_panel_max_scroll = 0
-                    blf.color(font_id, *colors['text_dim'])
-                    no_bind_text, _, _ = _truncate_text(font_id, "No bindings found", info_w - sp6 * 2)
-                    blf.position(font_id, info_x + sp6, info_y + info_h - 2 * info_font_size - sp5, 0)
-                    blf.draw(font_id, no_bind_text)
             else:
                 state._info_panel_max_scroll = 0
                 blf.color(font_id, *colors['text_dim'])
-                help_text = "Hover a key to see bindings  \u00b7  Right-click to edit  \u00b7  / Search  \u00b7  ? Find by shortcut"
-                display_help, _, _ = _truncate_text(font_id, help_text, info_w - sp5 * 2)
-                blf.position(font_id, info_x + sp5, info_y + info_h / 2 - info_font_size / 2, 0)
-                blf.draw(font_id, display_help)
+                no_bind_text, _, _ = _truncate_text(font_id, "No bindings found", info_w - sp6 * 2)
+                blf.position(font_id, info_x + sp6, info_y + info_h - 2 * info_font_size - sp5, 0)
+                blf.draw(font_id, no_bind_text)
+        else:
+            state._info_panel_max_scroll = 0
+            blf.color(font_id, *colors['text_dim'])
+            help_text = "Hover a key to see bindings  \u00b7  Right-click to edit  \u00b7  / Search  \u00b7  ? Find by shortcut"
+            display_help, _, _ = _truncate_text(font_id, help_text, info_w - sp5 * 2)
+            blf.position(font_id, info_x + sp5, info_y + info_h / 2 - info_font_size / 2, 0)
+            blf.draw(font_id, display_help)
 
         # --- H. Capture overlay (Phase 5) ---
         if state._modal_state == 'CAPTURE':
