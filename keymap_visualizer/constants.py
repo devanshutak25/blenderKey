@@ -54,7 +54,19 @@ _CAPTURABLE_KEYS = {
 }
 
 # ---------------------------------------------------------------------------
-# Colors
+# Base theme tokens (user-configurable via preferences)
+# ---------------------------------------------------------------------------
+BASE_ACCENT     = (0.20, 0.50, 0.90, 1.0)
+BASE_BACKGROUND = (0.14, 0.14, 0.15, 0.95)   # warmed slightly from 0.12
+BASE_SURFACE    = (0.25, 0.25, 0.28, 1.0)
+BASE_TEXT       = (0.93, 0.93, 0.93, 1.0)     # softened from 1.0
+BASE_SUCCESS    = (0.25, 0.45, 0.25, 1.0)
+BASE_WARNING    = (1.00, 0.90, 0.30, 1.0)
+BASE_DANGER     = (1.00, 0.40, 0.30, 1.0)
+BASE_INFO       = (0.30, 0.90, 0.80, 1.0)
+
+# ---------------------------------------------------------------------------
+# Legacy colors (kept for backward compat, prefer base tokens + derivation)
 # ---------------------------------------------------------------------------
 COL_BG = (0.12, 0.12, 0.12, 0.95)
 COL_KEY_DEFAULT = (0.25, 0.25, 0.28, 1.0)
@@ -203,6 +215,24 @@ OPERATOR_CATEGORY_KEYMAPS = {
     "wm.":        "Window",
     "ed.":        "Screen",
     "file.":      "Window",
+}
+
+# Category text-safe colors (brightened for 4.5:1+ contrast on dark backgrounds)
+CATEGORY_TEXT_COLORS = {
+    "Transform":  (0.85, 0.60, 0.35, 1.0),
+    "Navigation": (0.40, 0.70, 0.75, 1.0),
+    "Mesh":       (0.65, 0.50, 0.80, 1.0),
+    "Object":     (0.50, 0.70, 0.50, 1.0),
+    "Playback":   (0.50, 0.60, 0.85, 1.0),
+    "Animation":  (0.80, 0.70, 0.35, 1.0),
+    "Nodes":      (0.70, 0.55, 0.65, 1.0),
+    "UV":         (0.45, 0.75, 0.60, 1.0),
+    "Sculpt":     (0.75, 0.50, 0.50, 1.0),
+    "Paint":      (0.70, 0.60, 0.45, 1.0),
+    "System":     (0.60, 0.60, 0.70, 1.0),
+    "Edit":       (0.65, 0.65, 0.72, 1.0),
+    "File":       (0.50, 0.65, 0.60, 1.0),
+    "Other":      (0.65, 0.65, 0.65, 1.0),
 }
 
 CATEGORY_COLORS = {

@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from gpu_extras.batch import batch_for_shader
 
 from . import state
+from dataclasses import dataclass
 from .constants import (
     _MODIFIER_EVENTS, MODIFIER_KEY_TO_DICT,
     COL_BG, COL_KEY_DEFAULT, COL_KEY_HOVER, COL_KEY_SELECTED, COL_KEY_MODIFIER,
@@ -22,9 +23,11 @@ from .constants import (
     COL_SHADOW, COL_SEARCH_BG, COL_SEARCH_BORDER,
     COL_GPU_MENU_BG, COL_GPU_MENU_HOVER, COL_GPU_MENU_BORDER,
     COL_KEY_BOUND, SPACE_TYPE_FILTERS, MODE_FILTERS,
-    COL_SHORTCUT_SEARCH_TEXT, CATEGORY_COLORS,
+    COL_SHORTCUT_SEARCH_TEXT, CATEGORY_COLORS, CATEGORY_TEXT_COLORS,
     OPERATOR_ABBREVIATIONS, OPERATOR_CATEGORIES,
     OPERATOR_CATEGORY_ORDER,
+    BASE_ACCENT, BASE_BACKGROUND, BASE_SURFACE, BASE_TEXT,
+    BASE_SUCCESS, BASE_WARNING, BASE_DANGER, BASE_INFO,
 )
 
 # ---------------------------------------------------------------------------
@@ -97,112 +100,155 @@ from .layout import _compute_keyboard_layout
 
 
 def _get_colors():
-    """Read all colors from addon preferences, falling back to constants."""
+    """Derive all colors from 8 base tokens, with optional advanced overrides."""
     try:
         prefs = bpy.context.preferences.addons["keymap_visualizer"].preferences
-        return {
-            # Keys
-            'key_default': tuple(prefs.col_key_unbound),
-            'key_selected': tuple(prefs.col_key_selected),
-            'key_hovered': tuple(prefs.col_key_hovered),
-            'key_bound': tuple(prefs.col_key_bound),
-            'key_modifier': tuple(prefs.col_key_modifier),
-            # General UI
-            'background': tuple(prefs.col_background),
-            'text': tuple(prefs.col_text),
-            'text_dim': tuple(prefs.col_text_dim),
-            'panel_bg': tuple(prefs.col_panel_bg),
-            'shadow': tuple(prefs.col_shadow),
-            # Borders
-            'border': tuple(prefs.col_border),
-            'border_highlight': tuple(prefs.col_border_highlight),
-            # Toggles
-            'toggle_active': tuple(prefs.col_toggle_active),
-            'toggle_inactive': tuple(prefs.col_toggle_inactive),
-            # Buttons
-            'button_normal': tuple(prefs.col_button_normal),
-            'button_hover': tuple(prefs.col_button_hover),
-            'export_button': tuple(prefs.col_export_button),
-            'export_button_hover': tuple(prefs.col_export_button_hover),
-            # Search
-            'search_bg': tuple(prefs.col_search_bg),
-            'search_border': tuple(prefs.col_search_border),
-            # Menu
-            'menu_bg': tuple(prefs.col_menu_bg),
-            'menu_hover': tuple(prefs.col_menu_hover),
-            'menu_border': tuple(prefs.col_menu_border),
-            # Overlays
-            'capture_overlay': tuple(prefs.col_capture_overlay),
-            'capture_text': tuple(prefs.col_capture_text),
-            'conflict_bg': tuple(prefs.col_conflict_bg),
-            'conflict_header': tuple(prefs.col_conflict_header),
-            'shortcut_search_text': tuple(prefs.col_shortcut_search_text),
-            # Additional UI colors
-            'active_highlight': tuple(prefs.col_active_highlight),
-            'text_inactive': tuple(prefs.col_text_inactive),
-            'badge_text': tuple(prefs.col_badge_text),
-            # Category colors
-            'cat_transform': tuple(prefs.col_cat_transform),
-            'cat_navigation': tuple(prefs.col_cat_navigation),
-            'cat_mesh': tuple(prefs.col_cat_mesh),
-            'cat_object': tuple(prefs.col_cat_object),
-            'cat_playback': tuple(prefs.col_cat_playback),
-            'cat_animation': tuple(prefs.col_cat_animation),
-            'cat_nodes': tuple(prefs.col_cat_nodes),
-            'cat_uv': tuple(prefs.col_cat_uv),
-            'cat_sculpt': tuple(prefs.col_cat_sculpt),
-            'cat_paint': tuple(prefs.col_cat_paint),
-            'cat_system': tuple(prefs.col_cat_system),
-            'cat_edit': tuple(prefs.col_cat_edit),
-            'cat_file': tuple(prefs.col_cat_file),
-        }
+        accent = tuple(prefs.col_accent)
+        background = tuple(prefs.col_background)
+        surface = tuple(prefs.col_surface)
+        text = tuple(prefs.col_text)
+        success = tuple(prefs.col_success)
+        warning = tuple(prefs.col_warning)
+        danger = tuple(prefs.col_danger)
+        info = tuple(prefs.col_info)
     except Exception:
-        return {
-            'key_default': COL_KEY_DEFAULT,
-            'key_selected': COL_KEY_SELECTED,
-            'key_hovered': COL_KEY_HOVER,
-            'key_bound': COL_KEY_BOUND,
-            'key_modifier': COL_KEY_MODIFIER,
-            'background': COL_BG,
-            'text': COL_TEXT,
-            'text_dim': COL_TEXT_DIM,
-            'panel_bg': COL_INFO_BG,
-            'shadow': COL_SHADOW,
-            'border': COL_BORDER,
-            'border_highlight': COL_BORDER_HIGHLIGHT,
-            'toggle_active': COL_TOGGLE_ACTIVE,
-            'toggle_inactive': COL_TOGGLE_INACTIVE,
-            'button_normal': COL_BUTTON_NORMAL,
-            'button_hover': COL_BUTTON_HOVER,
-            'export_button': COL_EXPORT_BUTTON,
-            'export_button_hover': COL_EXPORT_BUTTON_HOVER,
-            'search_bg': COL_SEARCH_BG,
-            'search_border': COL_SEARCH_BORDER,
-            'menu_bg': COL_GPU_MENU_BG,
-            'menu_hover': COL_GPU_MENU_HOVER,
-            'menu_border': COL_GPU_MENU_BORDER,
-            'capture_overlay': COL_CAPTURE_OVERLAY,
-            'capture_text': COL_CAPTURE_TEXT,
-            'conflict_bg': COL_CONFLICT_BG,
-            'conflict_header': COL_CONFLICT_HEADER,
-            'shortcut_search_text': COL_SHORTCUT_SEARCH_TEXT,
-            'active_highlight': (0.22, 0.28, 0.35, 1.0),
-            'text_inactive': (0.5, 0.5, 0.5, 0.6),
-            'badge_text': (0.9, 0.9, 0.9, 0.85),
-            'cat_transform': CATEGORY_COLORS["Transform"],
-            'cat_navigation': CATEGORY_COLORS["Navigation"],
-            'cat_mesh': CATEGORY_COLORS["Mesh"],
-            'cat_object': CATEGORY_COLORS["Object"],
-            'cat_playback': CATEGORY_COLORS["Playback"],
-            'cat_animation': CATEGORY_COLORS["Animation"],
-            'cat_nodes': CATEGORY_COLORS["Nodes"],
-            'cat_uv': CATEGORY_COLORS["UV"],
-            'cat_sculpt': CATEGORY_COLORS["Sculpt"],
-            'cat_paint': CATEGORY_COLORS["Paint"],
-            'cat_system': CATEGORY_COLORS["System"],
-            'cat_edit': CATEGORY_COLORS["Edit"],
-            'cat_file': CATEGORY_COLORS["File"],
-        }
+        accent = BASE_ACCENT
+        background = BASE_BACKGROUND
+        surface = BASE_SURFACE
+        text = BASE_TEXT
+        success = BASE_SUCCESS
+        warning = BASE_WARNING
+        danger = BASE_DANGER
+        info = BASE_INFO
+
+    # Helper: scale color channels by factor
+    def _scale(c, f):
+        return (min(1.0, c[0] * f), min(1.0, c[1] * f), min(1.0, c[2] * f), c[3])
+
+    def _add_lightness(c, d):
+        return (min(1.0, c[0] + d), min(1.0, c[1] + d), min(1.0, c[2] + d), c[3])
+
+    # Derive all colors from base tokens
+    colors = {
+        # Keys
+        'key_default': surface,
+        'key_selected': accent,
+        'key_hovered': _lerp_color(surface, accent, 0.4),
+        'key_bound': _lerp_color(surface, accent, 0.15),
+        'key_modifier': (min(1.0, surface[0] + 0.05), min(1.0, surface[1] + 0.03),
+                         max(0.0, surface[2] - 0.03), 1.0),
+        'key_inactive': _scale(surface, 0.72),
+        # General UI
+        'background': background,
+        'text': text,
+        'text_dim': _scale(text, 0.80),
+        'panel_bg': _add_lightness(background, 0.03),
+        'info_panel_bg': _add_lightness(background, 0.06),
+        'shadow': (0.0, 0.0, 0.0, 0.3),
+        # Borders
+        'border': _add_lightness(surface, 0.15),
+        'border_highlight': _lerp_color(accent, (1.0, 1.0, 1.0, 1.0), 0.5),
+        # Toggles
+        'toggle_active': accent,
+        'toggle_inactive': _scale(surface, 0.88),
+        # Buttons
+        'button_normal': _scale(surface, 1.15),
+        'button_hover': _lerp_color(surface, accent, 0.45),
+        'export_button': success,
+        'export_button_hover': _scale(success, 1.30),
+        # Search
+        'search_bg': _add_lightness(background, 0.06),
+        'search_border': _scale(accent, 0.70),
+        # Menu
+        'menu_bg': _add_lightness(background, 0.03),
+        'menu_hover': _lerp_color(surface, accent, 0.35),
+        'menu_border': _add_lightness(surface, 0.15),
+        # Overlays
+        'capture_overlay': (0.0, 0.0, 0.0, 0.6),
+        'capture_text': warning,
+        'conflict_bg': _add_lightness(background, -0.02),
+        'conflict_header': danger,
+        'shortcut_search_text': info,
+        # Additional UI
+        'active_highlight': _lerp_color(surface, accent, 0.2),
+        'text_inactive': (0.55, 0.55, 0.55, 1.0),
+        'badge_text': _scale(text, 0.85),
+        # Category colors (from prefs)
+        'cat_transform': CATEGORY_COLORS.get("Transform", surface),
+        'cat_navigation': CATEGORY_COLORS.get("Navigation", surface),
+        'cat_mesh': CATEGORY_COLORS.get("Mesh", surface),
+        'cat_object': CATEGORY_COLORS.get("Object", surface),
+        'cat_playback': CATEGORY_COLORS.get("Playback", surface),
+        'cat_animation': CATEGORY_COLORS.get("Animation", surface),
+        'cat_nodes': CATEGORY_COLORS.get("Nodes", surface),
+        'cat_uv': CATEGORY_COLORS.get("UV", surface),
+        'cat_sculpt': CATEGORY_COLORS.get("Sculpt", surface),
+        'cat_paint': CATEGORY_COLORS.get("Paint", surface),
+        'cat_system': CATEGORY_COLORS.get("System", surface),
+        'cat_edit': CATEGORY_COLORS.get("Edit", surface),
+        'cat_file': CATEGORY_COLORS.get("File", surface),
+    }
+
+    # Apply category colors from prefs
+    try:
+        prefs = bpy.context.preferences.addons["keymap_visualizer"].preferences
+        colors['cat_transform'] = tuple(prefs.col_cat_transform)
+        colors['cat_navigation'] = tuple(prefs.col_cat_navigation)
+        colors['cat_mesh'] = tuple(prefs.col_cat_mesh)
+        colors['cat_object'] = tuple(prefs.col_cat_object)
+        colors['cat_playback'] = tuple(prefs.col_cat_playback)
+        colors['cat_animation'] = tuple(prefs.col_cat_animation)
+        colors['cat_nodes'] = tuple(prefs.col_cat_nodes)
+        colors['cat_uv'] = tuple(prefs.col_cat_uv)
+        colors['cat_sculpt'] = tuple(prefs.col_cat_sculpt)
+        colors['cat_paint'] = tuple(prefs.col_cat_paint)
+        colors['cat_system'] = tuple(prefs.col_cat_system)
+        colors['cat_edit'] = tuple(prefs.col_cat_edit)
+        colors['cat_file'] = tuple(prefs.col_cat_file)
+    except Exception:
+        pass
+
+    # Apply advanced overrides from prefs
+    _OVERRIDE_MAP = {
+        'key_default': ('use_key_unbound_override', 'col_key_unbound'),
+        'key_selected': ('use_key_selected_override', 'col_key_selected'),
+        'key_hovered': ('use_key_hovered_override', 'col_key_hovered'),
+        'key_bound': ('use_key_bound_override', 'col_key_bound'),
+        'key_modifier': ('use_key_modifier_override', 'col_key_modifier'),
+        'text_dim': ('use_text_dim_override', 'col_text_dim'),
+        'panel_bg': ('use_panel_bg_override', 'col_panel_bg'),
+        'shadow': ('use_shadow_override', 'col_shadow'),
+        'border': ('use_border_override', 'col_border'),
+        'border_highlight': ('use_border_highlight_override', 'col_border_highlight'),
+        'toggle_active': ('use_toggle_active_override', 'col_toggle_active'),
+        'toggle_inactive': ('use_toggle_inactive_override', 'col_toggle_inactive'),
+        'button_normal': ('use_button_normal_override', 'col_button_normal'),
+        'button_hover': ('use_button_hover_override', 'col_button_hover'),
+        'export_button': ('use_export_button_override', 'col_export_button'),
+        'export_button_hover': ('use_export_button_hover_override', 'col_export_button_hover'),
+        'search_bg': ('use_search_bg_override', 'col_search_bg'),
+        'search_border': ('use_search_border_override', 'col_search_border'),
+        'menu_bg': ('use_menu_bg_override', 'col_menu_bg'),
+        'menu_hover': ('use_menu_hover_override', 'col_menu_hover'),
+        'menu_border': ('use_menu_border_override', 'col_menu_border'),
+        'capture_overlay': ('use_capture_overlay_override', 'col_capture_overlay'),
+        'capture_text': ('use_capture_text_override', 'col_capture_text'),
+        'conflict_bg': ('use_conflict_bg_override', 'col_conflict_bg'),
+        'conflict_header': ('use_conflict_header_override', 'col_conflict_header'),
+        'shortcut_search_text': ('use_shortcut_search_text_override', 'col_shortcut_search_text'),
+        'active_highlight': ('use_active_highlight_override', 'col_active_highlight'),
+        'text_inactive': ('use_text_inactive_override', 'col_text_inactive'),
+        'badge_text': ('use_badge_text_override', 'col_badge_text'),
+    }
+    try:
+        prefs = bpy.context.preferences.addons["keymap_visualizer"].preferences
+        for color_key, (use_prop, col_prop) in _OVERRIDE_MAP.items():
+            if getattr(prefs, use_prop, False):
+                colors[color_key] = tuple(getattr(prefs, col_prop))
+    except Exception:
+        pass
+
+    return colors
 
 
 def _get_category_colors_enabled():
@@ -315,15 +361,19 @@ def _truncate_text(font_id, text, max_width):
     return display, tw, th
 
 
-def _draw_scrollbar(shader, x, y, h, scroll_offset, max_scroll, content_h, visible_h):
+def _draw_scrollbar(shader, x, y, h, scroll_offset, max_scroll, content_h, visible_h,
+                     track_w=10, track_color=None, thumb_color=None):
     """Draw a vertical scrollbar track and thumb."""
-    track_w = 10
-    _draw_rect(shader, x, y, track_w, h, (0.25, 0.25, 0.25, 0.6))
+    if track_color is None:
+        track_color = (0.25, 0.25, 0.25, 0.6)
+    if thumb_color is None:
+        thumb_color = (0.7, 0.7, 0.7, 0.85)
+    _draw_rect(shader, x, y, track_w, h, track_color)
     visible_ratio = visible_h / content_h
     thumb_h = max(15, h * visible_ratio)
     scroll_ratio = scroll_offset / max_scroll if max_scroll > 0 else 0
     thumb_y = y + h - thumb_h - scroll_ratio * (h - thumb_h)
-    _draw_rect(shader, x, thumb_y, track_w, thumb_h, (0.7, 0.7, 0.7, 0.85))
+    _draw_rect(shader, x, thumb_y, track_w, thumb_h, thumb_color)
 
 
 def _draw_fade_gradient(shader_smooth, x1, x2, y, fade_h, bg_color, direction):
@@ -355,7 +405,7 @@ def _draw_centered_overlay(shader, font_id, rw, rh, unit_px, info_font_size, col
                            main_text, main_color_key, sub_text=None):
     """Draw a fullscreen overlay with centered main text and optional subtitle."""
     _draw_rect(shader, 0, 0, rw, rh, colors['capture_overlay'])
-    cap_font_size = max(14, int(unit_px * 0.5))
+    cap_font_size = max(15, int(unit_px * 0.5))
     blf.size(font_id, cap_font_size)
     blf.color(font_id, *colors[main_color_key])
     tw, th = blf.dimensions(font_id, main_text)
@@ -372,6 +422,35 @@ def _draw_centered_overlay(shader, font_id, rw, rh, unit_px, info_font_size, col
 def _lerp_color(a, b, t):
     """Linearly interpolate between two RGBA colors."""
     return tuple(a[i] + (b[i] - a[i]) * t for i in range(4))
+
+
+@dataclass
+class Spacing:
+    sp1: int    # tiny (0.02u)
+    sp2: int    # small (0.04u)
+    sp3: int    # medium (0.06u)
+    sp4: int    # standard (0.08u)
+    sp5: int    # large (0.13u)
+    sp6: int    # panel (0.20u)
+    pad: int    # plate (0.25u)
+    track_w: int  # scrollbar width
+    item_h: int   # normal item height
+    item_h_sm: int  # compact item height
+
+
+def _compute_spacing(unit_px):
+    return Spacing(
+        sp1=max(1, int(unit_px * 0.02)),
+        sp2=max(2, int(unit_px * 0.04)),
+        sp3=max(3, int(unit_px * 0.06)),
+        sp4=max(5, int(unit_px * 0.08)),
+        sp5=max(8, int(unit_px * 0.13)),
+        sp6=max(10, int(unit_px * 0.20)),
+        pad=max(10, int(unit_px * 0.25)),
+        track_w=max(8, int(unit_px * 0.15)),
+        item_h=max(22, int(unit_px * 0.45)),
+        item_h_sm=max(16, int(unit_px * 0.35)),
+    )
 
 
 def _get_filter_summary(filter_type):
@@ -440,13 +519,11 @@ def _build_gpu_menu(mx, my, region_width, region_height, bindings=None):
     else:
         unit_px = 40
 
-    item_h = 28
-    padding = 2
+    s = _compute_spacing(unit_px)
+    item_h = s.item_h
+    padding = s.sp1
     icon_size = int(item_h * 0.7)
-    sp2 = max(2, int(unit_px * 0.04))
-    sp3 = max(3, int(unit_px * 0.06))
-    sp5 = max(8, int(unit_px * 0.13))
-    menu_font_size = max(10, int(unit_px * 0.28))
+    menu_font_size = max(11, int(unit_px * 0.28))
 
     # Build labels and measure widths
     font_id = _ensure_font_loaded()
@@ -466,8 +543,8 @@ def _build_gpu_menu(mx, my, region_width, region_height, bindings=None):
     if not labels:
         return
 
-    menu_width = int(icon_size + sp5 + max_text_w + sp5 * 2)
-    menu_width = max(menu_width, 120)  # minimum width
+    menu_width = int(icon_size + s.sp5 + max_text_w + s.sp5 * 2)
+    menu_width = max(menu_width, max(120, int(unit_px * 2.0)))
     flyout_est_width = 160  # estimated flyout width for overflow check
 
     total_h = len(labels) * (item_h + padding) + padding
@@ -532,15 +609,16 @@ def _build_flyout(main_item_index):
         unit_px = min(unit_from_w, unit_from_h) * state._user_scale
     else:
         unit_px = 40
-    sp2 = max(2, int(unit_px * 0.04))
-    sp5 = max(8, int(unit_px * 0.13))
-    info_font_size = max(10, int(unit_px * 0.28))
-    action_font_size = max(9, int(info_font_size * 0.9))
+    s = _compute_spacing(unit_px)
+    sp2 = s.sp2
+    sp5 = s.sp5
+    info_font_size = max(11, int(unit_px * 0.28))
+    action_font_size = max(10, int(info_font_size * 0.9))
 
     # Measure text widths
     font_id = _ensure_font_loaded()
-    action_h = 26
-    padding = 2
+    action_h = s.item_h_sm
+    padding = s.sp1
     blf.size(font_id, action_font_size)
 
     max_tw = 0.0
@@ -571,9 +649,16 @@ def _build_preset_dropdown(button_rect, region_width, region_height):
     presets = _list_presets()
     bx, by, bw, bh = button_rect
 
-    item_h = 26
-    item_w = max(bw, 180)
-    padding = 2
+    # Compute unit_px for scaled sizing
+    rw, rh = state._cached_region_size
+    if rw > 0 and rh > 0:
+        _upx = min(rw / 24, rh / 12) * state._user_scale
+    else:
+        _upx = 40
+    _s = _compute_spacing(_upx)
+    item_h = _s.item_h_sm
+    item_w = max(bw, max(180, int(_upx * 2.0)))
+    padding = _s.sp1
 
     # Build items: presets + Save As + Delete
     items = []
@@ -597,14 +682,16 @@ def _build_preset_dropdown(button_rect, region_width, region_height):
         state._preset_dropdown_rects.append((label, action, dropdown_x, iy, item_w, item_h))
 
 
-def _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_px, colors):
+def _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_px, colors, s=None):
     """Draw the Editor and Mode filter list panels below the keyboard."""
-    list_font_size = max(8, int(unit_px * 0.22))
-    # Local scaled spacing (M5)
-    sp1 = max(1, int(unit_px * 0.02))
-    sp2 = max(2, int(unit_px * 0.04))
-    sp4 = max(5, int(unit_px * 0.08))
-    sp6 = max(10, int(unit_px * 0.20))
+    list_font_size = max(10, int(unit_px * 0.22))
+    # Use centralized spacing
+    if s is None:
+        s = _compute_spacing(unit_px)
+    sp1 = s.sp1
+    sp2 = s.sp2
+    sp4 = s.sp4
+    sp6 = s.sp6
 
     for panel_rect, item_rects, selected_set, hovered_idx, header_text, is_editor in [
         (state._filter_editor_list_rect, state._filter_editor_list_rects,
@@ -616,8 +703,9 @@ def _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_p
             continue
         px, py, pw, ph = panel_rect
         scroll_offset = state._filter_editor_scroll if is_editor else state._filter_mode_scroll
-        # Panel background
-        _draw_panel(shader_uniform, px, py, pw, ph, colors['panel_bg'], colors['border'])
+        # Panel background (softened border for filter panels)
+        soft_border = (colors['border'][0], colors['border'][1], colors['border'][2], colors['border'][3] * 0.5)
+        _draw_panel(shader_uniform, px, py, pw, ph, colors['panel_bg'], soft_border)
 
         # C2: Focus indicator for list panels
         if (is_editor and state._nav_focus == 'EDITOR_LIST') or (not is_editor and state._nav_focus == 'MODE_LIST'):
@@ -686,9 +774,11 @@ def _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_p
             total_content_h = len(item_rects) * item_h + header_h
             if total_content_h > ph:
                 max_scroll = total_content_h - ph
-                track_w = 10
+                track_w = s.track_w
                 track_x = px + pw - track_w - sp1
-                _draw_scrollbar(shader_uniform, track_x, py, ph, scroll_offset, max_scroll, total_content_h, ph)
+                _draw_scrollbar(shader_uniform, track_x, py, ph, scroll_offset, max_scroll, total_content_h, ph,
+                                track_w=track_w, track_color=_lerp_color(colors['panel_bg'], colors['border'], 0.3),
+                                thumb_color=colors['text_dim'])
 
                 # Fade gradients at edges (Issue #9)
                 fade_h = sp6
@@ -701,7 +791,7 @@ def _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_p
                                         py, fade_h, colors['panel_bg'], 'UP')
 
 
-def _draw_operator_list(shader_uniform, shader_smooth, font_id, font_size, unit_px, colors):
+def _draw_operator_list(shader_uniform, shader_smooth, font_id, font_size, unit_px, colors, s=None):
     """Draw the Operators accordion panel below the keyboard."""
     from .keymap_data import _collect_all_operators, _compute_bound_operators
 
@@ -716,24 +806,27 @@ def _draw_operator_list(shader_uniform, shader_smooth, font_id, font_size, unit_
 
     px, py, pw, ph = panel_rect
 
-    list_font_size = max(8, int(unit_px * 0.22))
-    sp1 = max(1, int(unit_px * 0.02))
-    sp2 = max(2, int(unit_px * 0.04))
-    sp3 = max(3, int(unit_px * 0.06))
-    sp4 = max(5, int(unit_px * 0.08))
-    sp5 = max(8, int(unit_px * 0.13))
+    if s is None:
+        s = _compute_spacing(unit_px)
+    list_font_size = max(10, int(unit_px * 0.22))
+    sp1 = s.sp1
+    sp2 = s.sp2
+    sp3 = s.sp3
+    sp4 = s.sp4
+    sp5 = s.sp5
 
-    # Panel background
-    _draw_panel(shader_uniform, px, py, pw, ph, colors['panel_bg'], colors['border'])
+    # Panel background (softened border)
+    soft_border = (colors['border'][0], colors['border'][1], colors['border'][2], colors['border'][3] * 0.5)
+    _draw_panel(shader_uniform, px, py, pw, ph, colors['panel_bg'], soft_border)
 
     # Focus indicator
     if state._nav_focus == 'OPERATOR_LIST':
         _draw_rect_border(shader_uniform, px, py, pw, ph, colors['border_highlight'])
 
     header_h = max(16, unit_px * 0.35)
-    search_h = max(20, unit_px * 0.45)
-    item_h = max(18, unit_px * 0.40)
-    group_h = max(20, unit_px * 0.45)
+    search_h = s.item_h
+    item_h = s.item_h_sm
+    group_h = s.item_h
     indent = sp5
 
     # Header: "Operators"
@@ -749,16 +842,19 @@ def _draw_operator_list(shader_uniform, shader_smooth, font_id, font_size, unit_
     search_y = py + ph - header_h - search_h - sp1
     search_x = px + sp2
     search_w = pw - sp2 * 2
-    search_bg = colors['search_bg'] if state._operator_list_search_active else (0.18, 0.18, 0.22, 0.7)
+    inactive_search_bg = (colors['search_bg'][0], colors['search_bg'][1], colors['search_bg'][2], 0.7)
+    search_bg = colors['search_bg'] if state._operator_list_search_active else inactive_search_bg
     _draw_rect(shader_uniform, search_x, search_y, search_w, search_h, search_bg)
     _draw_rect_border(shader_uniform, search_x, search_y, search_w, search_h,
                       colors['search_border'] if state._operator_list_search_active else colors['border'])
 
     if unit_px >= 20:
-        blf.size(font_id, max(7, int(unit_px * 0.18)))
+        blf.size(font_id, max(9, int(unit_px * 0.18)))
         if state._operator_list_search_active or state._operator_list_search_text:
             blf.color(font_id, *colors['capture_text'])
-            display = state._operator_list_search_text + "|"
+            show_cursor = time.monotonic() % 1.0 > 0.5
+            cursor = "|" if show_cursor else " "
+            display = state._operator_list_search_text + cursor
         else:
             blf.color(font_id, *colors['text_dim'])
             display = "Search operators\u2026"
@@ -818,9 +914,10 @@ def _draw_operator_list(shader_uniform, shader_smooth, font_id, font_size, unit_
             # Draw category header
             gy = cursor_y - group_h + scroll_offset
             if content_bottom <= gy + group_h and gy <= content_top:
-                # Category color accent
-                cat_color = CATEGORY_COLORS.get(category, colors['text_dim'])
-                _draw_rect(shader_uniform, px + sp1, gy, sp2, group_h, cat_color)
+                # Category color accent (use bg color for strip, text color for label)
+                cat_bg_color = CATEGORY_COLORS.get(category, colors['text_dim'])
+                cat_text_color = CATEGORY_TEXT_COLORS.get(category, colors['text_dim'])
+                _draw_rect(shader_uniform, px + sp1, gy, sp2, group_h, cat_bg_color)
 
                 # Header background on hover
                 group_idx = len(state._operator_list_group_rects)
@@ -829,7 +926,7 @@ def _draw_operator_list(shader_uniform, shader_smooth, font_id, font_size, unit_
 
                 if unit_px >= 20:
                     blf.size(font_id, list_font_size)
-                    blf.color(font_id, *cat_color[:3], 1.0)
+                    blf.color(font_id, *cat_text_color)
                     arrow = "\u25BE" if is_expanded else "\u25B8"
                     count_str = f" ({len(ops)})"
                     cat_text = f"{arrow} {category}{count_str}"
@@ -851,7 +948,7 @@ def _draw_operator_list(shader_uniform, shader_smooth, font_id, font_size, unit_
                             _draw_rect(shader_uniform, px + indent, iy, pw - indent - sp2, item_h, colors['menu_hover'])
 
                         if unit_px >= 20:
-                            blf.size(font_id, max(7, int(unit_px * 0.18)))
+                            blf.size(font_id, max(9, int(unit_px * 0.18)))
                             # Bound indicator dot
                             is_bound = op_id in state._operator_list_bound_ops
                             if is_bound:
@@ -874,13 +971,15 @@ def _draw_operator_list(shader_uniform, shader_smooth, font_id, font_size, unit_
 
         # Scrollbar
         if max_scroll > 0 and total_h > 0:
-            track_w = 10
+            track_w = s.track_w
             track_x = px + pw - track_w - sp1
             _draw_scrollbar(shader_uniform, track_x, int(content_bottom), content_h,
-                            scroll_offset, max_scroll, total_h, content_h)
+                            scroll_offset, max_scroll, total_h, content_h,
+                            track_w=track_w, track_color=_lerp_color(colors['panel_bg'], colors['border'], 0.3),
+                            thumb_color=colors['text_dim'])
 
             # Fade gradients
-            fade_h = max(10, int(unit_px * 0.20))
+            fade_h = s.sp6
             fade_x2 = px + pw - track_w - sp2
             if scroll_offset > 0:
                 _draw_fade_gradient(shader_smooth, px, fade_x2,
@@ -890,14 +989,16 @@ def _draw_operator_list(shader_uniform, shader_smooth, font_id, font_size, unit_
                                     int(content_bottom), fade_h, colors['panel_bg'], 'UP')
 
 
-def _draw_op_flyout(shader_uniform, font_id, unit_px, colors):
+def _draw_op_flyout(shader_uniform, font_id, unit_px, colors, s=None):
     """Draw the operator flyout menu."""
     if not state._op_flyout_visible or not state._op_flyout_items:
         return
 
-    sp2 = max(2, int(unit_px * 0.04))
-    sp5 = max(8, int(unit_px * 0.13))
-    info_font_size = max(10, int(unit_px * 0.28))
+    if s is None:
+        s = _compute_spacing(unit_px)
+    sp2 = s.sp2
+    sp5 = s.sp5
+    info_font_size = max(11, int(unit_px * 0.28))
 
     all_x = [item[2] for item in state._op_flyout_items]
     all_y = [item[3] for item in state._op_flyout_items]
@@ -907,9 +1008,13 @@ def _draw_op_flyout(shader_uniform, font_id, unit_px, colors):
     bg_w = state._op_flyout_items[0][4] + sp2 * 2
     bg_h = (max(all_y_max) - min(all_y)) + sp2 * 2
 
+    # Drop shadow behind operator flyout
+    shadow_off = max(3, sp2)
+    _draw_rect(shader_uniform, bg_x + shadow_off, bg_y - shadow_off, bg_w, bg_h, colors['shadow'])
+
     _draw_panel(shader_uniform, bg_x, bg_y, bg_w, bg_h, colors['menu_bg'], colors['menu_border'])
 
-    action_font_size = max(9, int(info_font_size * 0.9))
+    action_font_size = max(10, int(info_font_size * 0.9))
     for fi_idx, (flabel, faction, fx, fy, fw, fh) in enumerate(state._op_flyout_items):
         fcol = colors['menu_hover'] if fi_idx == state._op_flyout_hovered else colors['menu_bg']
         _draw_rect(shader_uniform, fx, fy, fw, fh, fcol)
@@ -995,14 +1100,16 @@ def _draw_callback():
 
         unit_px = min(rw / 24, rh / 12) * state._user_scale
 
-        # Scaled spacing constants (M5)
-        sp1 = max(1, int(unit_px * 0.02))   # tiny offset
-        sp2 = max(2, int(unit_px * 0.04))   # small padding
-        sp3 = max(3, int(unit_px * 0.06))   # medium padding
-        sp4 = max(5, int(unit_px * 0.08))   # standard gap
-        sp5 = max(8, int(unit_px * 0.13))   # large padding
-        sp6 = max(10, int(unit_px * 0.20))  # panel padding
-        pad = max(10, int(unit_px * 0.25))  # background plate padding
+        # Centralized spacing
+        s = _compute_spacing(unit_px)
+        sp1, sp2, sp3, sp4, sp5, sp6, pad = s.sp1, s.sp2, s.sp3, s.sp4, s.sp5, s.sp6, s.pad
+
+        # Consolidated font sizes (5 tiers)
+        font_xs   = max(9, int(unit_px * 0.18))    # operator items, badges
+        font_sm   = max(10, int(unit_px * 0.22))   # list panel items
+        font_base = max(11, int(unit_px * 0.28))   # info panel text, menus
+        font_lg   = max(13, int(unit_px * 0.38))   # info panel header
+        font_xl   = max(15, int(unit_px * 0.50))   # overlay text
 
         # --- A. Background plate ---
         min_x = min(kr.x for kr in state._key_rects)
@@ -1156,6 +1263,15 @@ def _draw_callback():
             if search_dimming and kr.event_type not in state._search_matching_keys:
                 col = (col[0] * 0.3, col[1] * 0.3, col[2] * 0.3, col[3])
 
+            # Rebind success flash
+            if i == state._rebind_flash_key_index:
+                elapsed = now - state._rebind_flash_time
+                if elapsed < 0.3:
+                    flash_t = 1.0 - elapsed / 0.3
+                    col = _lerp_color(col, (0.2, 0.6, 0.3, 1.0), flash_t * 0.6)
+                else:
+                    state._rebind_flash_key_index = -1
+
             x, y, w, h = kr.x, kr.y, kr.w, kr.h
             verts.extend([(x, y), (x + w, y), (x + w, y + h), (x, y + h)])
             key_colors.extend([col, col, col, col])
@@ -1235,14 +1351,14 @@ def _draw_callback():
 
         # --- E. Key labels (v0.9: two-line — key label top-left, command label below) ---
         font_id = _ensure_font_loaded()
-        font_size = max(10, int(unit_px * 0.3))
-        cmd_font_size = max(9, int(unit_px * 0.22))
+        font_size = max(11, int(unit_px * 0.3))
+        cmd_font_size = font_sm
 
         if unit_px >= 20:
             pad_x = max(3, int(unit_px * 0.04))
             pad_y = max(2, int(unit_px * 0.03))
             cfont = _get_condensed_font()
-            badge_font_size = max(7, int(unit_px * 0.18))
+            badge_font_size = font_xs
             blf.size(font_id, font_size)
             blf.size(cfont, cmd_font_size)
             for i, kr in enumerate(state._key_rects):
@@ -1323,8 +1439,7 @@ def _draw_callback():
             _draw_panel(shader_uniform, ex, ey, ew, eh, ex_col, colors['border'])
 
             if unit_px >= 20:
-                btn_font_size = max(8, int(unit_px * 0.22))
-                blf.size(font_id, btn_font_size)
+                blf.size(font_id, font_sm)
                 blf.color(font_id, *colors['text'])
                 elabel = "Export"
                 tw, th = blf.dimensions(font_id, elabel)
@@ -1338,8 +1453,7 @@ def _draw_callback():
             _draw_panel(shader_uniform, px, py, pw, ph, pr_col, colors['border'])
 
             if unit_px >= 20:
-                btn_font_size = max(8, int(unit_px * 0.22))
-                blf.size(font_id, btn_font_size)
+                blf.size(font_id, font_sm)
                 blf.color(font_id, *colors['text'])
                 plabel = state._active_preset_name if state._active_preset_name else "Presets"
                 plabel, tw, th = _truncate_text(font_id, plabel, pw - sp5)
@@ -1352,23 +1466,22 @@ def _draw_callback():
         if (undo_count > 0 or redo_count > 0) and state._export_button_rect is not None:
             ex, ey, ew, eh = state._export_button_rect
             undo_text = f"Undo: {undo_count} | Redo: {redo_count}"
-            undo_font_size = max(8, int(unit_px * 0.2))
-            blf.size(font_id, undo_font_size)
+            blf.size(font_id, font_xs)
             blf.color(font_id, *colors['text_dim'])
             tw, th = blf.dimensions(font_id, undo_text)
             # Position below the export button
             blf.position(font_id, ex, ey - th - sp3, 0)
             blf.draw(font_id, undo_text)
 
-        # --- Feature 4: Editor/Mode filter list panels ---
-        _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_px, colors)
+        # --- Feature 4: Editor/Mode filter list panels (softened border) ---
+        _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_px, colors, s)
 
         # --- Operator List panel ---
-        _draw_operator_list(shader_uniform, shader_smooth, font_id, font_size, unit_px, colors)
+        _draw_operator_list(shader_uniform, shader_smooth, font_id, font_size, unit_px, colors, s)
 
         # --- L4: Tooltip rendering ---
         if state._tooltip_text and (now - state._tooltip_hover_start) >= 0.5:
-            tip_font_size = max(9, int(unit_px * 0.2))
+            tip_font_size = font_xs
             blf.size(font_id, tip_font_size)
             blf.color(font_id, *colors['text'])
             tw_tip, th_tip = blf.dimensions(font_id, state._tooltip_text)
@@ -1391,6 +1504,8 @@ def _draw_callback():
             dd_w = first_dd[4] + sp2 * 2
             dd_h = (dd_max_y - dd_min_y) + sp2 * 2
 
+            # Drop shadow behind preset dropdown
+            _draw_rect(shader_uniform, dd_x + max(3, sp2), dd_min_y - sp2 - max(3, sp2), dd_w, dd_h, colors['shadow'])
             _draw_panel(shader_uniform, dd_x, dd_min_y - sp2, dd_w, dd_h, colors['menu_bg'], colors['menu_border'])
 
             for di, item in enumerate(state._preset_dropdown_rects):
@@ -1414,7 +1529,7 @@ def _draw_callback():
         if category_colors_enabled and state._key_categories_cache:
             active_cats = set(state._key_categories_cache.values())
             if active_cats:
-                legend_font_size = max(8, int(unit_px * 0.2))
+                legend_font_size = font_xs
                 blf.size(font_id, legend_font_size)
                 swatch_size = max(8, int(unit_px * 0.25))
                 swatch_gap = max(3, int(unit_px * 0.05))
@@ -1458,15 +1573,26 @@ def _draw_callback():
             _draw_panel(shader_uniform, sb_x, sb_y, sb_w, sb_h, colors['search_bg'], colors['search_border'])
 
             if unit_px >= 20:
-                blf.size(font_id, font_size)
+                blf.size(font_id, font_base)
                 blf.color(font_id, *colors['capture_text'])
-                search_display = state._search_text + "|"
-                if not state._search_text:
-                    search_display = "Search bindings\u2026 |"
+                show_cursor = now % 1.0 > 0.5
+                cursor = "|" if show_cursor else " "
+                if state._search_text:
+                    search_display = state._search_text + cursor
+                else:
+                    search_display = "Search bindings\u2026 " + cursor
                     blf.color(font_id, *colors['text_dim'])
                 tw, th = blf.dimensions(font_id, search_display)
                 blf.position(font_id, sb_x + sp5, sb_y + (sb_h - th) / 2, 0)
                 blf.draw(font_id, search_display)
+
+                # Search match count
+                if state._search_text:
+                    count = len(state._search_matching_keys)
+                    count_text = f"  {count} match{'es' if count != 1 else ''}" if count > 0 else "  No matches"
+                    blf.color(font_id, *colors['text_dim'])
+                    blf.position(font_id, sb_x + sp5 + tw + sp3, sb_y + (sb_h - th) / 2, 0)
+                    blf.draw(font_id, count_text)
 
         # --- v0.9 Feature 6: Preset name input overlay ---
         if state._preset_name_input_active:
@@ -1503,11 +1629,11 @@ def _draw_callback():
         operator_list_w = unit_px * 3.0
         info_x = (min_x - pad) + editor_list_w + gap + mode_list_w + gap + operator_list_w + gap
         info_w = (max_x + pad) - info_x
-        info_h = unit_px * 4.0
+        info_h = unit_px * 3.2
         info_y = min_y - pad - info_h - sp3
 
-        # Panel background + border (Issue #7)
-        _draw_panel(shader_uniform, info_x, info_y, info_w, info_h, colors['panel_bg'], colors['border'])
+        # Panel background + border — info panel uses brighter bg
+        _draw_panel(shader_uniform, info_x, info_y, info_w, info_h, colors['info_panel_bg'], colors['border'])
 
         # C2: Focus indicator for info panel
         if state._nav_focus == 'INFO_PANEL':
@@ -1517,15 +1643,18 @@ def _draw_callback():
         state._info_panel_rect = (info_x, info_y, info_w, info_h)
 
         active_idx = state._selected_key_index if state._selected_key_index >= 0 else state._hovered_key_index
-        info_font_size = max(10, int(unit_px * 0.28))
+        info_font_size = font_base
         blf.size(font_id, info_font_size)
 
         if 0 <= active_idx < len(state._key_rects):
+            # Draw accent strip on left edge when a key is active
+            _draw_rect(shader_uniform, info_x, info_y, 2, info_h, colors['key_selected'])
+
             kr = state._key_rects[active_idx]
             bindings, n_matching = _get_all_bindings_for_key(kr.event_type)
 
             # Header: big key name + dim filter summary (Issue #5, #8)
-            header_font_size = max(12, int(unit_px * 0.38))
+            header_font_size = font_lg
             header_x = info_x + sp5
             header_y = info_y + info_h - header_font_size - sp3
             blf.size(font_id, header_font_size)
@@ -1557,7 +1686,7 @@ def _draw_callback():
                 # Single-column layout with scrolling (Issues #2, #3, #12)
                 # Group bindings by (op_id, mod_str) for collapsible display
                 groups = _group_bindings(bindings, n_matching)
-                line_h = info_font_size + 3
+                line_h = info_font_size + sp2
                 content_top = sep_y - sp3
                 content_bottom = info_y + sp3
                 visible_h = content_top - content_bottom
@@ -1704,20 +1833,22 @@ def _draw_callback():
 
                     # Scrollbar (Issue #3)
                     if has_scrollbar:
-                        track_w = 10
+                        track_w = s.track_w
                         track_x = info_x + info_w - track_w - sp2
                         _draw_scrollbar(shader_uniform, track_x, content_bottom, visible_h,
-                                        scroll_offset, info_max_scroll, total_rows * line_h, visible_h)
+                                        scroll_offset, info_max_scroll, total_rows * line_h, visible_h,
+                                        track_w=track_w, track_color=_lerp_color(colors['info_panel_bg'], colors['border'], 0.3),
+                                        thumb_color=colors['text_dim'])
 
                         # Fade gradients (Issue #9)
                         fade_h = sp6
                         fade_x2 = info_x + info_w - track_w - sp3
                         if scroll_offset > 0:
                             _draw_fade_gradient(shader_smooth, cx, fade_x2,
-                                                content_top - fade_h, fade_h, colors['panel_bg'], 'DOWN')
+                                                content_top - fade_h, fade_h, colors['info_panel_bg'], 'DOWN')
                         if scroll_offset < info_max_scroll:
                             _draw_fade_gradient(shader_smooth, cx, fade_x2,
-                                                content_bottom, fade_h, colors['panel_bg'], 'UP')
+                                                content_bottom, fade_h, colors['info_panel_bg'], 'UP')
             else:
                 state._info_panel_max_scroll = 0
                 blf.color(font_id, *colors['text_dim'])
@@ -1732,11 +1863,43 @@ def _draw_callback():
             blf.position(font_id, info_x + sp5, info_y + info_h / 2 - info_font_size / 2, 0)
             blf.draw(font_id, display_help)
 
-        # --- H. Capture overlay (Phase 5) ---
+        # --- H. Capture overlay (Phase 5: soft dim instead of black overlay) ---
         if state._modal_state == 'CAPTURE':
-            _draw_centered_overlay(shader_uniform, font_id, rw, rh, unit_px, info_font_size,
-                                   colors, "Press new key combination\u2026", 'capture_text',
-                                   "ESC to cancel")
+            # Dim all keys by drawing semi-transparent dark overlay
+            dim_overlay = (0.0, 0.0, 0.0, 0.5)
+            for ki, kr in enumerate(state._key_rects):
+                if ki == state._capture_target_key_index:
+                    continue  # keep target key bright
+                _draw_rect(shader_uniform, kr.x, kr.y, kr.w, kr.h, dim_overlay)
+
+            # Pulsing border on target key
+            if 0 <= state._capture_target_key_index < len(state._key_rects):
+                tkr = state._key_rects[state._capture_target_key_index]
+                pulse = 0.5 + 0.5 * math.sin(now * 2 * math.pi * 1.5)
+                pulse_col = _lerp_color(colors['border_highlight'], colors['capture_text'], pulse)
+                gpu.state.line_width_set(2.0)
+                _draw_rect_border(shader_uniform, tkr.x, tkr.y, tkr.w, tkr.h, pulse_col)
+                gpu.state.line_width_set(1.0)
+
+            # Draw text above keyboard (toolbar area) instead of screen center
+            cap_font_size = font_xl
+            blf.size(font_id, cap_font_size)
+            blf.color(font_id, *colors['capture_text'])
+            cap_text = "Press new key combination\u2026"
+            tw, th = blf.dimensions(font_id, cap_text)
+            text_y = max_y + pad + sp5
+            if state._export_button_rect:
+                text_y = max(text_y, state._export_button_rect[1] + state._export_button_rect[3] + sp5)
+            blf.position(font_id, (rw - tw) / 2, text_y, 0)
+            blf.draw(font_id, cap_text)
+
+            # Subtitle
+            blf.size(font_id, font_base)
+            blf.color(font_id, *colors['text_dim'])
+            sub_text = "ESC to cancel"
+            tw2, th2 = blf.dimensions(font_id, sub_text)
+            blf.position(font_id, (rw - tw2) / 2, text_y - cap_font_size - sp2, 0)
+            blf.draw(font_id, sub_text)
 
         # --- v0.9 Feature 5: Shortcut search overlay ---
         if state._shortcut_search_active:
@@ -1755,7 +1918,7 @@ def _draw_callback():
 
             _draw_panel(shader_uniform, panel_x, panel_y, panel_w, panel_h, colors['conflict_bg'], colors['border'])
 
-            hdr_size = max(14, int(unit_px * 0.4))
+            hdr_size = font_lg
             blf.size(font_id, hdr_size)
             blf.color(font_id, *colors['conflict_header'])
             hdr_text = "Key Conflict"
@@ -1815,7 +1978,7 @@ def _draw_callback():
 
         # --- J. GPU-drawn context menu (humanized + flyout) ---
         if state._modal_state == 'MENU_OPEN' and state._gpu_menu_items:
-            # Draw main menu background
+            # Draw main menu background with drop shadow
             all_x = [item[2] for item in state._gpu_menu_items]
             all_y = [item[3] for item in state._gpu_menu_items]
             all_y_max = [item[3] + item[5] for item in state._gpu_menu_items]
@@ -1823,6 +1986,11 @@ def _draw_callback():
             menu_bg_y = min(all_y) - sp2
             menu_bg_w = state._gpu_menu_items[0][4] + sp2 * 2
             menu_bg_h = (max(all_y_max) - min(all_y)) + sp2 * 2
+
+            # Drop shadow behind menu
+            shadow_off = max(3, sp2)
+            _draw_rect(shader_uniform, menu_bg_x + shadow_off, menu_bg_y - shadow_off,
+                        menu_bg_w, menu_bg_h, colors['shadow'])
 
             _draw_panel(shader_uniform, menu_bg_x, menu_bg_y, menu_bg_w, menu_bg_h,
                         colors['menu_bg'], colors['menu_border'])
@@ -1871,10 +2039,14 @@ def _draw_callback():
                 fly_bg_w = state._gpu_flyout_items[0][4] + sp2 * 2
                 fly_bg_h = (max(fly_all_y_max) - min(fly_all_y)) + sp2 * 2
 
+                # Drop shadow behind flyout
+                _draw_rect(shader_uniform, fly_bg_x + shadow_off, fly_bg_y - shadow_off,
+                            fly_bg_w, fly_bg_h, colors['shadow'])
+
                 _draw_panel(shader_uniform, fly_bg_x, fly_bg_y, fly_bg_w, fly_bg_h,
                             colors['menu_bg'], colors['menu_border'])
 
-                action_font_size = max(9, int(info_font_size * 0.9))
+                action_font_size = max(10, int(info_font_size * 0.9))
                 for fi_idx, fitem in enumerate(state._gpu_flyout_items):
                     flabel, faction, fx, fy, fw, fh, fbind_idx = fitem
                     fcol = colors['menu_hover'] if fi_idx == state._gpu_flyout_hovered else colors['menu_bg']
@@ -1886,7 +2058,7 @@ def _draw_callback():
                     blf.draw(font_id, flabel)
 
         # --- Operator flyout menu ---
-        _draw_op_flyout(shader_uniform, font_id, unit_px, colors)
+        _draw_op_flyout(shader_uniform, font_id, unit_px, colors, s)
 
         gpu.state.blend_set('NONE')
     except Exception:

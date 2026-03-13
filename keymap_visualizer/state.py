@@ -187,6 +187,13 @@ _capture_new_binding = False
 _capture_target_op_id = None
 _capture_target_km_name = None
 
+# Phase 5: Capture target key for dimmed overlay
+_capture_target_key_index = -1
+
+# Phase 7: Rebind success flash
+_rebind_flash_key_index = -1
+_rebind_flash_time = 0.0
+
 # Launch: deferred modal start (stored here because operator instances are
 # freed after execute() returns, so self._xxx is invalid in timer callbacks)
 _launch_window = None
@@ -237,6 +244,7 @@ def _reset_all_state():
     global _operator_list_bound_ops, _operator_list_bound_ops_dirty
     global _op_flyout_hovered, _op_flyout_target_op_id, _op_flyout_visible
     global _capture_new_binding, _capture_target_op_id, _capture_target_km_name
+    global _capture_target_key_index, _rebind_flash_key_index, _rebind_flash_time
 
     _draw_handle = None
     _target_area = None
@@ -352,6 +360,9 @@ def _reset_all_state():
     _capture_new_binding = False
     _capture_target_op_id = None
     _capture_target_km_name = None
+    _capture_target_key_index = -1
+    _rebind_flash_key_index = -1
+    _rebind_flash_time = 0.0
 
 
 def _invalidate_cache():

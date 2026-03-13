@@ -68,7 +68,7 @@ def _compute_keyboard_layout(region_width, region_height):
     total_width_px = total_width_units * unit_px
     start_x = (region_width - total_width_px) / 2
     # Position keyboard above bottom panel (lists + info)
-    bottom_panel_height = unit_px * 4.0
+    bottom_panel_height = unit_px * 3.2
     start_y = bottom_panel_height + unit_px * 0.5
 
     # Build main block key rects (rows stack bottom-to-top)
@@ -156,7 +156,7 @@ def _compute_keyboard_layout(region_width, region_height):
     # --- Bottom panel: Editor list + Mode list + Operators + Info panel ---
     min_x = min(kr.x for kr in state._key_rects)
     gap = unit_px * 0.12
-    panel_h = unit_px * 4.0
+    panel_h = unit_px * 3.2
     panel_y = all_min_y - pad - panel_h - max(3, int(unit_px * 0.06))
     editor_list_w = unit_px * 2.8
     mode_list_w = unit_px * 2.5

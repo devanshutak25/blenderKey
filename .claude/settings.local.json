@@ -72,7 +72,11 @@
       "Bash(grep -n \"all.*operator\\\\|collect.*operator\\\\|iterate.*operator\\\\|operator.*summary\\\\|ALL_OPERATORS\" G:\\\\\\\\Personal\\\\\\\\blenderKey\\\\\\\\keymap_visualizer\\\\\\\\*.py)",
       "Bash(wc -l \"G:/Personal/blenderKey/keymap_visualizer/\"*.py)",
       "Bash(cd \"G:\\\\Personal\\\\blenderKey\" && python -c \"import ast; [ast.parse\\(open\\(f'keymap_visualizer/{f}'\\).read\\(\\)\\) for f in ['state.py', 'constants.py', 'keymap_data.py', 'layout.py', 'hit_testing.py', 'handlers.py', 'operators.py']]\" 2>&1 && echo \"All files parse OK\")",
-      "Bash(cd \"G:\\\\Personal\\\\blenderKey\" && python -c \"import ast; ast.parse\\(open\\('keymap_visualizer/drawing.py'\\).read\\(\\)\\); print\\('drawing.py parses OK'\\)\")"
+      "Bash(cd \"G:\\\\Personal\\\\blenderKey\" && python -c \"import ast; ast.parse\\(open\\('keymap_visualizer/drawing.py'\\).read\\(\\)\\); print\\('drawing.py parses OK'\\)\")",
+      "Bash(cd \"G:\\\\Personal\\\\blenderKey\" && python -c \"import ast; ast.parse\\(open\\('keymap_visualizer/constants.py'\\).read\\(\\)\\); print\\('constants.py OK'\\)\" && python -c \"import ast; ast.parse\\(open\\('keymap_visualizer/state.py'\\).read\\(\\)\\); print\\('state.py OK'\\)\" && python -c \"import ast; ast.parse\\(open\\('keymap_visualizer/layout.py'\\).read\\(\\)\\); print\\('layout.py OK'\\)\" && python -c \"import ast; ast.parse\\(open\\('keymap_visualizer/preferences.py'\\).read\\(\\)\\); print\\('preferences.py OK'\\)\" && python -c \"import ast; ast.parse\\(open\\('keymap_visualizer/drawing.py'\\).read\\(\\)\\); print\\('drawing.py OK'\\)\" && python -c \"import ast; ast.parse\\(open\\('keymap_visualizer/handlers.py'\\).read\\(\\)\\); print\\('handlers.py OK'\\)\")",
+      "Read(//g/Personal/blenderKey/**)",
+      "Bash(bash /tmp/verify_audit.sh)",
+      "Bash(bash /tmp/verify_features.sh)"
     ]
   }
 }

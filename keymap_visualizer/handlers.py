@@ -513,6 +513,7 @@ def _handle_idle(context, event):
                 km_name, op_id, mod_str, kmi, is_active = bindings[0][:5]
                 state._menu_context['target_kmi'] = kmi
                 state._menu_context['target_km_name'] = km_name
+                state._menu_context['target_key_index'] = state._selected_key_index if state._selected_key_index >= 0 else state._hovered_key_index
                 state._menu_context['pending_action'] = None
 
                 # Get region dimensions for menu positioning
@@ -635,6 +636,7 @@ def _dispatch_flyout_action(action, binding_index):
     if action == 'REBIND' and kmi:
         state._menu_context['target_kmi'] = kmi
         state._menu_context['target_km_name'] = km_name
+        state._capture_target_key_index = state._menu_context.get('target_key_index', state._selected_key_index)
         state._modal_state = 'CAPTURE'
         state._menu_context['pending_action'] = 'REBIND'
     elif action == 'UNBIND' and kmi:
@@ -748,6 +750,7 @@ def _handle_capture(context, event):
 
     if event.type == 'ESC':
         state._modal_state = 'IDLE'
+        state._capture_target_key_index = -1
         state._menu_context.clear()
         state._capture_new_binding = False
         state._capture_target_op_id = None
@@ -779,6 +782,7 @@ def _handle_capture(context, event):
             state._capture_new_binding = False
             state._capture_target_op_id = None
             state._capture_target_km_name = None
+            state._capture_target_key_index = -1
             state._batch_dirty = True
             _tag_redraw()
             return {'RUNNING_MODAL'}
@@ -797,6 +801,12 @@ def _handle_capture(context, event):
             # No conflicts — apply directly
             _push_undo([kmi])  # v0.9: undo support
             _apply_rebind(kmi, new_type, new_ctrl, new_shift, new_alt, new_oskey)
+            # Success flash on target key
+            target_ki = state._menu_context.get('target_key_index', -1)
+            if target_ki >= 0:
+                state._rebind_flash_key_index = target_ki
+                state._rebind_flash_time = time.monotonic()
+            state._capture_target_key_index = -1
             state._modal_state = 'IDLE'
             state._menu_context.clear()
         else:
@@ -872,6 +882,13 @@ def _handle_conflict(context, event):
                 _apply_rebind(src_kmi, new_type, new_ctrl, new_shift, new_alt, new_oskey)
 
             # CANCEL or fallthrough: just dismiss
+
+        # Flash the target key on successful conflict resolution
+        if action in ('SWAP', 'OVERRIDE'):
+            target_ki = state._menu_context.get('target_key_index', -1)
+            if target_ki >= 0:
+                state._rebind_flash_key_index = target_ki
+                state._rebind_flash_time = time.monotonic()
 
         state._modal_state = 'IDLE'
         state._invalidate_cache()
@@ -1165,6 +1182,7 @@ def _handle_op_flyout(context, event):
                 state._capture_new_binding = True
                 state._capture_target_op_id = op_id
                 state._capture_target_km_name = km_name
+                state._capture_target_key_index = -1  # no specific key for new bindings
                 _dismiss_op_flyout()
                 state._modal_state = 'CAPTURE'
                 _tag_redraw()
