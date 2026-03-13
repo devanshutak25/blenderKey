@@ -277,23 +277,26 @@ def _draw_icon(texture, x, y, size):
 
 
 def _truncate_text(font_id, text, max_width):
-    """Truncate text to fit within max_width, adding '...' if needed.
+    """Truncate text to fit within max_width, adding '\u2026' if needed.
     Uses binary search for efficiency. Returns (display_text, tw, th)."""
+    if not text or max_width <= 0:
+        return "", 0, 0
     tw, th = blf.dimensions(font_id, text)
     if tw <= max_width:
         return text, tw, th
+    ellipsis = "\u2026"
     lo, hi = 1, len(text) - 1
     best = 1
     while lo <= hi:
         mid = (lo + hi) // 2
-        candidate = text[:mid] + "..."
+        candidate = text[:mid] + ellipsis
         cw, _ = blf.dimensions(font_id, candidate)
         if cw <= max_width:
             best = mid
             lo = mid + 1
         else:
             hi = mid - 1
-    display = text[:best] + "..."
+    display = text[:best] + ellipsis
     tw, th = blf.dimensions(font_id, display)
     return display, tw, th
 
@@ -417,13 +420,13 @@ def _build_gpu_menu(mx, my, region_width, region_height, bindings=None):
     for bi in range(max_bindings):
         km_name, op_id, mod_str, kmi, is_active = bindings[bi][:5]
         prefix = f"[{mod_str}] " if mod_str else ""
-        active_tag = "" if is_active else "[inactive] "
+        active_tag = "" if is_active else "[off] "
         header_label = f"{active_tag}{prefix}{op_id}"
         if len(header_label) > 40:
-            header_label = header_label[:37] + "..."
+            header_label = header_label[:37] + "\u2026"
         header_label += f"  ({km_name})"
         if len(header_label) > 50:
-            header_label = header_label[:47] + "..."
+            header_label = header_label[:47] + "\u2026"
         menu_entries.append((header_label, "", bi, True, header_h))
         menu_entries.append(("  Rebind", "REBIND", bi, False, action_h))
         if is_active:
@@ -431,10 +434,10 @@ def _build_gpu_menu(mx, my, region_width, region_height, bindings=None):
         else:
             menu_entries.append(("  Enable", "TOGGLE", bi, False, action_h))
         menu_entries.append(("  Reset to Default", "RESET", bi, False, action_h))
-        menu_entries.append(("  Toggle Active", "TOGGLE", bi, False, action_h))
+        menu_entries.append(("  Toggle On/Off", "TOGGLE", bi, False, action_h))
 
     if not menu_entries:
-        menu_entries.append(("No bindings", "", -1, True, header_h))
+        menu_entries.append(("No bindings for this key", "", -1, True, header_h))
 
     total_h = sum(e[4] + padding for e in menu_entries) + padding
 
@@ -478,7 +481,7 @@ def _build_preset_dropdown(button_rect, region_width, region_height):
     items = []
     for name in presets:
         items.append((name, f"LOAD:{name}"))
-    items.append(("Save As...", "SAVE_AS"))
+    items.append(("Save As\u2026", "SAVE_AS"))
     if state._active_preset_name:
         items.append((f"Delete '{state._active_preset_name}'", "DELETE"))
 
@@ -535,7 +538,7 @@ def _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_p
         if not item_rects:
             blf.size(font_id, list_font_size)
             blf.color(font_id, *colors['text_dim'])
-            no_items = "No items"
+            no_items = "No matches"
             tw_e, th_e = blf.dimensions(font_id, no_items)
             blf.position(font_id, px + (pw - tw_e) / 2, py + ph / 2 - th_e / 2, 0)
             blf.draw(font_id, no_items)
@@ -903,6 +906,10 @@ def _draw_callback():
         if unit_px >= 20:
             pad_x = max(3, int(unit_px * 0.04))
             pad_y = max(2, int(unit_px * 0.03))
+            cfont = _get_condensed_font()
+            badge_font_size = max(7, int(unit_px * 0.18))
+            blf.size(font_id, font_size)
+            blf.size(cfont, cmd_font_size)
             for i, kr in enumerate(state._key_rects):
                 # Determine key background color for contrast-aware text
                 if i == state._selected_key_index:
@@ -939,44 +946,29 @@ def _draw_callback():
                 cmd_label = state._key_labels_cache.get(kr.event_type)
                 if cmd_label and kr.w >= unit_px * 0.8:
                     # Two-line layout: key label top-left, command label bottom
-                    blf.size(font_id, font_size)
                     blf.color(font_id, *text_col)
+                    display_label, _, _ = _truncate_text(font_id, kr.label, kr.w - pad_x * 2)
                     blf.position(font_id, kr.x + pad_x, kr.y + kr.h - font_size - pad_y, 0)
-                    blf.draw(font_id, kr.label)
+                    blf.draw(font_id, display_label)
 
-                    # Command label (larger, contrast-aware)
-                    cfont = _get_condensed_font()
-                    blf.size(cfont, cmd_font_size)
+                    # Command label (condensed font, contrast-aware)
                     blf.color(cfont, *cmd_text_col)
                     display_cmd, tw, th = _truncate_text(cfont, cmd_label, kr.w - pad_x * 2)
                     blf.position(cfont, kr.x + pad_x, kr.y + kr.h * 0.15, 0)
                     blf.draw(cfont, display_cmd)
                 else:
                     # Single centered label (original style)
-                    blf.size(font_id, font_size)
                     blf.color(font_id, *text_col)
-                    tw, th = blf.dimensions(font_id, kr.label)
+                    display_label, tw, th = _truncate_text(font_id, kr.label, kr.w - pad_x * 2)
                     tx = kr.x + (kr.w - tw) / 2
                     ty = kr.y + (kr.h - th) / 2
                     blf.position(font_id, tx, ty, 0)
-                    blf.draw(font_id, kr.label)
-
-                # Draw small editor icon in top-right corner for bound keys
-                key_space_type = state._key_editor_icons_cache.get(kr.event_type)
-                if key_space_type and kr.w >= unit_px * 0.8:
-                    key_icon_tex = get_km_icon(key_space_type)
-                    if key_icon_tex:
-                        key_icon_sz = int(kr.h * 0.3)
-                        _draw_icon(key_icon_tex,
-                                   kr.x + kr.w - key_icon_sz - sp2,
-                                   kr.y + kr.h - key_icon_sz - sp2,
-                                   key_icon_sz)
+                    blf.draw(font_id, display_label)
 
                 # Draw modifier badge (bottom-right)
                 badge_count = state._key_modifier_badge_cache.get(kr.event_type, 0)
                 if badge_count > 0:
                     badge_text = str(badge_count)
-                    badge_font_size = max(7, int(unit_px * 0.18))
                     blf.size(font_id, badge_font_size)
                     tw, th = blf.dimensions(font_id, badge_text)
                     badge_x = kr.x + kr.w - tw - sp2
@@ -987,6 +979,7 @@ def _draw_callback():
                     blf.color(font_id, *badge_col)
                     blf.position(font_id, badge_x, badge_y, 0)
                     blf.draw(font_id, badge_text)
+                    blf.size(font_id, font_size)  # restore for next key
 
         # --- F2. Export button (Phase 6) ---
         if state._export_button_rect is not None:
@@ -1151,7 +1144,7 @@ def _draw_callback():
                 blf.color(font_id, *colors['capture_text'])
                 search_display = state._search_text + "|"
                 if not state._search_text:
-                    search_display = "Search operators... |"
+                    search_display = "Search bindings\u2026 |"
                     blf.color(font_id, *colors['text_dim'])
                 tw, th = blf.dimensions(font_id, search_display)
                 blf.position(font_id, sb_x + sp5, sb_y + (sb_h - th) / 2, 0)
@@ -1171,7 +1164,7 @@ def _draw_callback():
                 blf.size(font_id, font_size)
                 # Title above input
                 blf.color(font_id, *colors['text'])
-                title = "Save Preset As:"
+                title = "Save Preset As"
                 tw, th = blf.dimensions(font_id, title)
                 blf.position(font_id, sb_x + (sb_w - tw) / 2, sb_y + sb_h + sp5, 0)
                 blf.draw(font_id, title)
@@ -1179,7 +1172,7 @@ def _draw_callback():
                 blf.color(font_id, *colors['capture_text'])
                 input_display = state._preset_name_text + "|"
                 if not state._preset_name_text:
-                    input_display = "Enter preset name... |"
+                    input_display = "Enter preset name\u2026 |"
                     blf.color(font_id, *colors['text_dim'])
                 tw, th = blf.dimensions(font_id, input_display)
                 blf.position(font_id, sb_x + sp5, sb_y + (sb_h - th) / 2, 0)
@@ -1330,24 +1323,27 @@ def _draw_callback():
             else:
                 state._info_panel_max_scroll = 0
                 blf.color(font_id, *colors['text_dim'])
+                no_bind_text, _, _ = _truncate_text(font_id, "No bindings found", info_w - sp6 * 2)
                 blf.position(font_id, info_x + sp6, info_y + info_h - 2 * info_font_size - sp5, 0)
-                blf.draw(font_id, "No bindings found")
+                blf.draw(font_id, no_bind_text)
         else:
             state._info_panel_max_scroll = 0
             blf.color(font_id, *colors['text_dim'])
+            help_text = "Hover a key to see bindings  \u00b7  Right-click to edit  \u00b7  / Search  \u00b7  ? Find by shortcut"
+            display_help, _, _ = _truncate_text(font_id, help_text, info_w - sp5 * 2)
             blf.position(font_id, info_x + sp5, info_y + info_h / 2 - info_font_size / 2, 0)
-            blf.draw(font_id, "Hover over a key to see its bindings  |  Right-click to edit  |  / to search  |  ? to find key")
+            blf.draw(font_id, display_help)
 
         # --- H. Capture overlay (Phase 5) ---
         if state._modal_state == 'CAPTURE':
             _draw_centered_overlay(shader_uniform, font_id, rw, rh, unit_px, info_font_size,
-                                   colors, "Press new key combination...", 'capture_text',
+                                   colors, "Press new key combination\u2026", 'capture_text',
                                    "ESC to cancel")
 
         # --- v0.9 Feature 5: Shortcut search overlay ---
         if state._shortcut_search_active:
             _draw_centered_overlay(shader_uniform, font_id, rw, rh, unit_px, info_font_size,
-                                   colors, "Press any key combination to find its binding...",
+                                   colors, "Press any key combination to find its binding\u2026",
                                    'shortcut_search_text', "ESC to cancel")
 
         # --- I. Conflict resolution overlay (Phase 5) ---
@@ -1364,7 +1360,7 @@ def _draw_callback():
             hdr_size = max(14, int(unit_px * 0.4))
             blf.size(font_id, hdr_size)
             blf.color(font_id, *colors['conflict_header'])
-            hdr_text = "Conflict Detected"
+            hdr_text = "Key Conflict"
             tw, th = blf.dimensions(font_id, hdr_text)
             blf.position(font_id, panel_x + (panel_w - tw) / 2, panel_y + panel_h - int(unit_px * 0.55), 0)
             blf.draw(font_id, hdr_text)
@@ -1373,7 +1369,7 @@ def _draw_callback():
             blf.color(font_id, *colors['text'])
             src_kmi = state._conflict_data.get('source_kmi')
             if src_kmi:
-                src_text = f"Rebinding: {src_kmi.idname} -> {state._conflict_data['new_type']}"
+                src_text = f"Rebinding {src_kmi.idname} \u2192 {state._conflict_data['new_type']}"
                 mod_parts = []
                 if state._conflict_data['new_ctrl']:
                     mod_parts.append("Ctrl")
@@ -1385,16 +1381,18 @@ def _draw_callback():
                     mod_parts.append("OS")
                 if mod_parts:
                     src_text += f" ({'+'.join(mod_parts)})"
+                src_display, _, _ = _truncate_text(font_id, src_text, panel_w - sp6 * 2)
                 blf.position(font_id, panel_x + sp6, panel_y + panel_h - int(unit_px * 0.9), 0)
-                blf.draw(font_id, src_text)
+                blf.draw(font_id, src_display)
 
             blf.color(font_id, *colors['text_dim'])
             conflicts = state._conflict_data.get('conflicts', [])
             for ci, (ckm_name, ckmi) in enumerate(conflicts[:5]):
                 cy = panel_y + panel_h - int(unit_px * 1.3) - ci * (info_font_size + sp3)
-                conflict_line = f"  Conflicts with: {ckmi.idname} ({ckm_name})"
+                conflict_line = f"  \u2022 {ckmi.idname} ({ckm_name})"
+                conflict_display, _, _ = _truncate_text(font_id, conflict_line, panel_w - sp6 * 2)
                 blf.position(font_id, panel_x + sp6, cy, 0)
-                blf.draw(font_id, conflict_line)
+                blf.draw(font_id, conflict_display)
 
             btn_w = max(80, int(unit_px * 1.5))
             btn_h = max(24, int(unit_px * 0.45))

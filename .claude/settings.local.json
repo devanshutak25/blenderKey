@@ -62,7 +62,8 @@
       "Bash(cd \"G:\\\\Personal\\\\blenderKey\" && python -c \"import py_compile; py_compile.compile\\('keymap_visualizer/handlers.py', doraise=True\\); print\\('handlers.py OK'\\)\")",
       "Bash(cd \"G:\\\\Personal\\\\blenderKey\" && python -c \"import py_compile; py_compile.compile\\('keymap_visualizer/drawing.py', doraise=True\\); print\\('drawing.py OK'\\)\")",
       "Bash(cd \"G:\\\\Personal\\\\blenderKey\" && python -c \"import py_compile; py_compile.compile\\('keymap_visualizer/drawing.py', doraise=True\\); py_compile.compile\\('keymap_visualizer/layout.py', doraise=True\\); py_compile.compile\\('keymap_visualizer/handlers.py', doraise=True\\); py_compile.compile\\('keymap_visualizer/state.py', doraise=True\\); print\\('All OK'\\)\")",
-      "Bash(cd \"G:\\\\Personal\\\\blenderKey\" && python -c \"import py_compile; py_compile.compile\\('keymap_visualizer/drawing.py', doraise=True\\); py_compile.compile\\('keymap_visualizer/layout.py', doraise=True\\); print\\('OK'\\)\")"
+      "Bash(cd \"G:\\\\Personal\\\\blenderKey\" && python -c \"import py_compile; py_compile.compile\\('keymap_visualizer/drawing.py', doraise=True\\); py_compile.compile\\('keymap_visualizer/layout.py', doraise=True\\); print\\('OK'\\)\")",
+      "Bash(grep -n \"_key_editor_icons_cache\" keymap_visualizer/*.py)"
     ]
   }
 }
