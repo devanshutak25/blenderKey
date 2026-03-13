@@ -430,15 +430,26 @@ def _build_gpu_menu(mx, my, region_width, region_height, bindings=None):
     if bindings is None:
         return
 
+    # Compute unit_px to match _draw_callback's scaled spacing
+    rw, rh = state._cached_region_size
+    if rw > 0 and rh > 0:
+        unit_from_w = rw / 24
+        unit_from_h = rh / 12
+        unit_px = min(unit_from_w, unit_from_h) * state._user_scale
+    else:
+        unit_px = 40
+
     item_h = 28
     padding = 2
     icon_size = int(item_h * 0.7)
-    sp5 = 5
+    sp2 = max(2, int(unit_px * 0.04))
+    sp3 = max(3, int(unit_px * 0.06))
+    sp5 = max(8, int(unit_px * 0.13))
+    menu_font_size = max(10, int(unit_px * 0.28))
 
     # Build labels and measure widths
     font_id = _ensure_font_loaded()
-    font_size = max(11, int(item_h * 0.45))
-    blf.size(font_id, font_size)
+    blf.size(font_id, menu_font_size)
 
     labels = []
     max_bindings = min(len(bindings), 5)
@@ -512,13 +523,24 @@ def _build_flyout(main_item_index):
     actions.append(("Reset to Default", "RESET"))
     actions.append(("Toggle On/Off", "TOGGLE"))
 
+    # Compute scaled spacing to match _draw_callback
+    rw, rh = state._cached_region_size
+    if rw > 0 and rh > 0:
+        unit_from_w = rw / 24
+        unit_from_h = rh / 12
+        unit_px = min(unit_from_w, unit_from_h) * state._user_scale
+    else:
+        unit_px = 40
+    sp2 = max(2, int(unit_px * 0.04))
+    sp5 = max(8, int(unit_px * 0.13))
+    info_font_size = max(10, int(unit_px * 0.28))
+    action_font_size = max(9, int(info_font_size * 0.9))
+
     # Measure text widths
     font_id = _ensure_font_loaded()
     action_h = 26
     padding = 2
-    sp5 = 5
-    font_size = max(10, int(action_h * 0.45))
-    blf.size(font_id, font_size)
+    blf.size(font_id, action_font_size)
 
     max_tw = 0.0
     for alabel, _ in actions:
@@ -1583,7 +1605,7 @@ def _draw_callback():
 
             # Draw main menu items (humanized operator names)
             all_bindings = state._menu_context.get('all_bindings', [])
-            menu_font_size = max(10, int(info_font_size * 1.0))
+            menu_font_size = info_font_size
             for mi_idx, item in enumerate(state._gpu_menu_items):
                 mlabel, mbind_idx, mx, my, mw, mh, m_is_active = item
 
