@@ -103,15 +103,16 @@ def _compute_keyboard_layout(region_width, region_height):
                 state._key_rects.append(KeyRect(label, event_type, x, y, w, h))
                 x += width_u * unit_px
 
-    # --- Toolbar row above keyboard (Export + Presets only) ---
+    # --- Toolbar row above keyboard (Export + Presets, right-aligned, compact) ---
     toolbar_y = start_y + len(KEYBOARD_ROWS) * unit_px + unit_px * 0.3
-    toolbar_h = unit_px * 0.7
-    btn_gap = unit_px * 0.3
-    export_btn_w = unit_px * 2.5
-    presets_btn_w = unit_px * 2.5
+    toolbar_h = unit_px * 0.55
+    btn_gap = unit_px * 0.2
+    export_btn_w = unit_px * 1.6
+    presets_btn_w = unit_px * 1.6
 
+    all_max_x = max(kr.x + kr.w for kr in state._key_rects)
     total_toolbar_w = export_btn_w + presets_btn_w + btn_gap
-    toolbar_x = (region_width - total_toolbar_w) / 2
+    toolbar_x = all_max_x - total_toolbar_w
 
     x = toolbar_x
     state._export_button_rect = (x, toolbar_y, export_btn_w, toolbar_h)
@@ -119,7 +120,6 @@ def _compute_keyboard_layout(region_width, region_height):
     state._presets_btn_rect = (x, toolbar_y, presets_btn_w, toolbar_h)
 
     # --- Feature 1: Close button (top-right of keyboard frame) ---
-    all_max_x = max(kr.x + kr.w for kr in state._key_rects)
     all_max_y = toolbar_y + toolbar_h  # top of toolbar
     pad = max(10, int(unit_px * 0.25))  # M5: scaled padding (matches drawing.py)
     btn_size = unit_px * 0.6

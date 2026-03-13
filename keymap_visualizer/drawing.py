@@ -988,7 +988,8 @@ def _draw_callback():
             _draw_panel(shader_uniform, ex, ey, ew, eh, ex_col, colors['border'])
 
             if unit_px >= 20:
-                blf.size(font_id, font_size)
+                btn_font_size = max(8, int(unit_px * 0.22))
+                blf.size(font_id, btn_font_size)
                 blf.color(font_id, *colors['text'])
                 elabel = "Export"
                 tw, th = blf.dimensions(font_id, elabel)
@@ -1002,7 +1003,8 @@ def _draw_callback():
             _draw_panel(shader_uniform, px, py, pw, ph, pr_col, colors['border'])
 
             if unit_px >= 20:
-                blf.size(font_id, font_size)
+                btn_font_size = max(8, int(unit_px * 0.22))
+                blf.size(font_id, btn_font_size)
                 blf.color(font_id, *colors['text'])
                 plabel = state._active_preset_name if state._active_preset_name else "Presets"
                 plabel, tw, th = _truncate_text(font_id, plabel, pw - sp5)
@@ -1079,53 +1081,31 @@ def _draw_callback():
                 swatch_size = max(8, int(unit_px * 0.25))
                 swatch_gap = max(3, int(unit_px * 0.05))
 
-                # Position legend below keyboard to avoid numpad overlap
+                # Measure max label width for uniform entry spacing
                 sorted_cats = sorted(active_cats)
-                legend_total_h = len(sorted_cats) * (swatch_size + swatch_gap)
-                legend_x = min_x
-                legend_y = min_y - pad - sp3
-
-                # Measure max label width for horizontal layout check
                 max_label_w = 0
                 for cat_name in sorted_cats:
                     tw, _ = blf.dimensions(font_id, cat_name)
                     max_label_w = max(max_label_w, tw)
                 entry_w = swatch_size + swatch_gap + max_label_w + swatch_gap
 
-                # Use horizontal layout if fits, else vertical below keyboard
-                total_horiz_w = len(sorted_cats) * entry_w
-                use_horizontal = total_horiz_w <= (max_x - min_x)
-
-                if use_horizontal:
-                    # Horizontal legend below keyboard
-                    lx = min_x
-                    ly = min_y - pad - swatch_size - sp1
-                    for cat_name in sorted_cats:
-                        cat_key = _CAT_COLOR_KEYS.get(cat_name)
-                        cat_col = colors.get(cat_key, colors['key_bound']) if cat_key else colors['key_bound']
-                        _draw_rect(shader_uniform, lx, ly, swatch_size, swatch_size, cat_col)
-                        blf.color(font_id, *colors['text_dim'])
-                        tw, th = blf.dimensions(font_id, cat_name)
-                        blf.position(font_id, lx + swatch_size + swatch_gap, ly + (swatch_size - th) / 2, 0)
-                        blf.draw(font_id, cat_name)
-                        lx += entry_w
-                else:
-                    # Vertical legend to the left of keyboard
-                    legend_y = max_y - sp3
-                    for cat_name in sorted_cats:
-                        legend_y -= swatch_size + swatch_gap
-                        if legend_y < min_y:
-                            break
-
-                        cat_key = _CAT_COLOR_KEYS.get(cat_name)
-                        cat_col = colors.get(cat_key, colors['key_bound']) if cat_key else colors['key_bound']
-                        _draw_rect(shader_uniform, min_x - pad - swatch_size - max_label_w - swatch_gap * 2,
-                                   legend_y, swatch_size, swatch_size, cat_col)
-                        blf.color(font_id, *colors['text_dim'])
-                        tw, th = blf.dimensions(font_id, cat_name)
-                        blf.position(font_id, min_x - pad - max_label_w - swatch_gap,
-                                     legend_y + (swatch_size - th) / 2, 0)
-                        blf.draw(font_id, cat_name)
+                # Always horizontal, top-left above keyboard (same row as buttons)
+                toolbar_y = state._export_button_rect[1]
+                toolbar_h = state._export_button_rect[3]
+                lx = min_x
+                ly = toolbar_y + (toolbar_h - swatch_size) / 2
+                for cat_name in sorted_cats:
+                    cat_key = _CAT_COLOR_KEYS.get(cat_name)
+                    cat_col = colors.get(cat_key, colors['key_bound']) if cat_key else colors['key_bound']
+                    _draw_rect(shader_uniform, lx, ly, swatch_size, swatch_size, cat_col)
+                    blf.color(font_id, *colors['text_dim'])
+                    tw, th = blf.dimensions(font_id, cat_name)
+                    blf.position(font_id, lx + swatch_size + swatch_gap, ly + (swatch_size - th) / 2, 0)
+                    blf.draw(font_id, cat_name)
+                    lx += entry_w
+                    # Stop if we'd overlap the right-aligned buttons
+                    if state._export_button_rect and lx + entry_w > state._export_button_rect[0] - sp5:
+                        break
 
         # --- F3. Search bar (Phase 7) ---
         if state._search_active:
