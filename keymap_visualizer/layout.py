@@ -6,6 +6,7 @@ from . import state
 from .constants import (
     KeyRect, KEYBOARD_ROWS, NAV_CLUSTER_ROWS, NAV_ROW_ALIGNMENT,
     NUMPAD_ROWS, NUMPAD_ROW_ALIGNMENT,
+    SPACE_TYPE_FILTERS, MODE_FILTERS,
 )
 
 
@@ -48,9 +49,9 @@ def _compute_keyboard_layout(region_width, region_height):
     # Center the whole keyboard
     total_width_px = total_width_units * unit_px
     start_x = (region_width - total_width_px) / 2
-    # Position keyboard ~40% from bottom, leaving room for info panel below
-    info_panel_height = unit_px * 3
-    start_y = info_panel_height + unit_px * 0.5
+    # Position keyboard above bottom panel (lists + info)
+    bottom_panel_height = unit_px * 4.0
+    start_y = bottom_panel_height + unit_px * 0.5
 
     # Build main block key rects (rows stack bottom-to-top)
     for row_idx, row in enumerate(KEYBOARD_ROWS):
@@ -102,23 +103,17 @@ def _compute_keyboard_layout(region_width, region_height):
                 state._key_rects.append(KeyRect(label, event_type, x, y, w, h))
                 x += width_u * unit_px
 
-    # --- Toolbar row above keyboard (Filters + Export + Presets) ---
+    # --- Toolbar row above keyboard (Export + Presets only) ---
     toolbar_y = start_y + len(KEYBOARD_ROWS) * unit_px + unit_px * 0.3
     toolbar_h = unit_px * 0.7
     btn_gap = unit_px * 0.3
-    filter_btn_w = unit_px * 3.5
     export_btn_w = unit_px * 2.5
     presets_btn_w = unit_px * 2.5
 
-    total_toolbar_w = (2 * filter_btn_w + export_btn_w + presets_btn_w
-                       + 3 * btn_gap)
+    total_toolbar_w = export_btn_w + presets_btn_w + btn_gap
     toolbar_x = (region_width - total_toolbar_w) / 2
 
     x = toolbar_x
-    state._filter_editor_btn_rect = (x, toolbar_y, filter_btn_w, toolbar_h)
-    x += filter_btn_w + btn_gap
-    state._filter_mode_btn_rect = (x, toolbar_y, filter_btn_w, toolbar_h)
-    x += filter_btn_w + btn_gap
     state._export_button_rect = (x, toolbar_y, export_btn_w, toolbar_h)
     x += export_btn_w + btn_gap
     state._presets_btn_rect = (x, toolbar_y, presets_btn_w, toolbar_h)
@@ -134,3 +129,37 @@ def _compute_keyboard_layout(region_width, region_height):
     all_min_y = min(kr.y for kr in state._key_rects)
     handle_size = max(12, unit_px * 0.4)
     state._resize_handle_rect = (all_max_x + pad - handle_size, all_min_y - pad, handle_size, handle_size)
+
+    # --- Bottom panel: Editor list + Mode list + Info panel ---
+    min_x = min(kr.x for kr in state._key_rects)
+    gap = unit_px * 0.15
+    panel_h = unit_px * 4.0
+    panel_y = all_min_y - pad - panel_h - 5
+    editor_list_w = unit_px * 3.5
+    mode_list_w = unit_px * 3.0
+    panel_start_x = min_x - pad
+
+    # Editor list panel bounding box
+    state._filter_editor_list_rect = (panel_start_x, panel_y, editor_list_w, panel_h)
+
+    # Mode list panel bounding box
+    mode_list_x = panel_start_x + editor_list_w + gap
+    state._filter_mode_list_rect = (mode_list_x, panel_y, mode_list_w, panel_h)
+
+    # Compute list item rects (leave room for header at top)
+    item_h = max(20, unit_px * 0.5)
+    header_h = max(16, unit_px * 0.35)  # space reserved for "Editors"/"Modes" header
+
+    state._filter_editor_list_rects = []
+    for i, (value, label) in enumerate(SPACE_TYPE_FILTERS):
+        iy = panel_y + panel_h - header_h - (i + 1) * item_h
+        if iy < panel_y:
+            break
+        state._filter_editor_list_rects.append((label, value, panel_start_x, iy, editor_list_w, item_h))
+
+    state._filter_mode_list_rects = []
+    for i, (value, label) in enumerate(MODE_FILTERS):
+        iy = panel_y + panel_h - header_h - (i + 1) * item_h
+        if iy < panel_y:
+            break
+        state._filter_mode_list_rects.append((label, value, mode_list_x, iy, mode_list_w, item_h))

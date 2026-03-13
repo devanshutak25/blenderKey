@@ -45,7 +45,10 @@
       "Bash(which inkscape:*)",
       "Bash(python -c \"import cairosvg; print\\('cairosvg available'\\)\" 2>&1 || python -c \"import svglib; print\\('svglib available'\\)\" 2>&1 || echo \"No SVG renderer found\")",
       "Bash(python -c \"\nfrom PIL import Image\nimport glob\nfor png in sorted\\(glob.glob\\('G:/Personal/blenderKey/keymap_visualizer/icons/**/*.png', recursive=True\\)\\):\n    img = Image.open\\(png\\)\n    name = png.split\\('icons\\\\\\\\\\\\\\\\'\\)[-1] if '\\\\\\\\\\\\\\\\' in png else png.split\\('icons/'\\)[-1]\n    print\\(f'{name}: {img.size} {img.mode}'\\)\n\")",
-      "Bash(python -c \"\nfrom PIL import Image\nimport glob, os\nfor png in sorted\\(glob.glob\\('G:/Personal/blenderKey/keymap_visualizer/icons/**/*.png', recursive=True\\)\\):\n    img = Image.open\\(png\\)\n    name = os.path.basename\\(os.path.dirname\\(png\\)\\) + '/' + os.path.basename\\(png\\)\n    print\\(f'{name}: {img.size} {img.mode}'\\)\n\")"
+      "Bash(python -c \"\nfrom PIL import Image\nimport glob, os\nfor png in sorted\\(glob.glob\\('G:/Personal/blenderKey/keymap_visualizer/icons/**/*.png', recursive=True\\)\\):\n    img = Image.open\\(png\\)\n    name = os.path.basename\\(os.path.dirname\\(png\\)\\) + '/' + os.path.basename\\(png\\)\n    print\\(f'{name}: {img.size} {img.mode}'\\)\n\")",
+      "Bash(python -m py_compile keymap_visualizer/state.py && python -m py_compile keymap_visualizer/hit_testing.py && python -m py_compile keymap_visualizer/layout.py && python -m py_compile keymap_visualizer/handlers.py && echo \"All compiled OK\")",
+      "Bash(python -m py_compile keymap_visualizer/operators.py && python -m py_compile keymap_visualizer/keymap_data.py && echo \"All compiled OK\")",
+      "Bash(python -m py_compile keymap_visualizer/drawing.py && echo \"OK\")"
     ]
   }
 }

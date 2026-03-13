@@ -85,6 +85,7 @@ def _get_condensed_font():
 from .keymap_data import (
     _get_bindings_for_key, _get_all_bindings_for_key, _compute_bound_keys,
     _compute_key_labels, _compute_key_categories, _compute_key_editor_icons,
+    _compute_key_modifier_badges,
 )
 from .icons import (
     _load_icons, get_editor_icon, get_mode_icon, get_km_icon,
@@ -264,49 +265,24 @@ def _lerp_color(a, b, t):
     return tuple(a[i] + (b[i] - a[i]) * t for i in range(4))
 
 
-def _get_filter_label(filter_type):
-    """Get the display label for current filter selection."""
+def _get_filter_summary(filter_type):
+    """Get a summary label for current filter selections."""
     if filter_type == 'EDITOR':
+        if 'ALL' in state._filter_space_types:
+            return "All Editors"
+        labels = []
         for value, label in SPACE_TYPE_FILTERS:
-            if value == state._filter_space_type:
-                return label
-        return "All Editors"
+            if value in state._filter_space_types:
+                labels.append(label)
+        return ", ".join(labels) if labels else "All Editors"
     else:
+        if 'ALL' in state._filter_modes:
+            return "All Modes"
+        labels = []
         for value, label in MODE_FILTERS:
-            if value == state._filter_mode:
-                return label
-        return "All Modes"
-
-
-def _build_filter_dropdown(filter_type, button_rect, region_width, region_height):
-    """Build dropdown rects for a filter button."""
-    state._filter_dropdown_rects = []
-    state._filter_dropdown_hovered = -1
-
-    items = SPACE_TYPE_FILTERS if filter_type == 'EDITOR' else MODE_FILTERS
-    bx, by, bw, bh = button_rect
-
-    item_h = 26
-    item_w = max(bw, 160)
-    padding = 2
-
-    # Position dropdown below the button
-    dropdown_x = bx
-    dropdown_y = by - len(items) * (item_h + padding) - padding
-
-    # Clamp to screen
-    if dropdown_x + item_w > region_width:
-        dropdown_x = region_width - item_w - 5
-    if dropdown_y < 5:
-        dropdown_y = 5
-
-    for i, (value, label) in enumerate(items):
-        iy = by - (i + 1) * (item_h + padding)
-        if iy < dropdown_y:
-            iy = dropdown_y + i * (item_h + padding)
-        state._filter_dropdown_rects.append((label, value, dropdown_x, iy, item_w, item_h))
-
-
+            if value in state._filter_modes:
+                labels.append(label)
+        return ", ".join(labels) if labels else "All Modes"
 def _build_gpu_menu(mx, my, region_width, region_height, bindings=None):
     """Build GPU-drawn context menu items at mouse position."""
     state._gpu_menu_items = []
@@ -428,6 +404,67 @@ def _build_preset_dropdown(button_rect, region_width, region_height):
         state._preset_dropdown_rects.append((label, action, dropdown_x, iy, item_w, item_h))
 
 
+def _draw_filter_lists(shader_uniform, font_id, font_size, unit_px, colors):
+    """Draw the Editor and Mode filter list panels below the keyboard."""
+    list_font_size = max(8, int(unit_px * 0.22))
+
+    for panel_rect, item_rects, selected_set, hovered_idx, header_text, is_editor in [
+        (state._filter_editor_list_rect, state._filter_editor_list_rects,
+         state._filter_space_types, state._filter_editor_hovered, "Editors", True),
+        (state._filter_mode_list_rect, state._filter_mode_list_rects,
+         state._filter_modes, state._filter_mode_hovered, "Modes", False),
+    ]:
+        if panel_rect is None:
+            continue
+        px, py, pw, ph = panel_rect
+        # Panel background
+        _draw_rect(shader_uniform, px, py, pw, ph, colors['panel_bg'])
+        _draw_rect_border(shader_uniform, px, py, pw, ph, colors['border'])
+
+        # Header
+        if unit_px >= 20:
+            blf.size(font_id, list_font_size)
+            blf.color(font_id, *colors['text'])
+            tw, th = blf.dimensions(font_id, header_text)
+            blf.position(font_id, px + (pw - tw) / 2, py + ph - list_font_size - 3, 0)
+            blf.draw(font_id, header_text)
+
+        # Items
+        for di, (dlabel, dvalue, dx, dy, dw, dh) in enumerate(item_rects):
+            is_selected = dvalue in selected_set
+            is_hovered = (di == hovered_idx)
+
+            if is_hovered:
+                dcol = colors['menu_hover']
+            elif is_selected:
+                dcol = (0.22, 0.28, 0.35, 1.0)
+            else:
+                dcol = colors['panel_bg']
+            _draw_rect(shader_uniform, dx, dy, dw, dh, dcol)
+
+            if unit_px >= 20:
+                blf.size(font_id, list_font_size)
+                blf.color(font_id, *colors['text'])
+                # Draw icon
+                if is_editor:
+                    icon_tex = get_editor_icon(dvalue)
+                else:
+                    icon_tex = get_mode_icon(dvalue)
+                icon_size = int(dh * 0.65)
+                icon_x = dx + 3
+                icon_y = dy + (dh - icon_size) / 2
+                _draw_icon(icon_tex, icon_x, icon_y, icon_size)
+                text_x = icon_x + icon_size + 3 if icon_tex else dx + 6
+                tw, th = blf.dimensions(font_id, dlabel)
+                avail_w = dw - (text_x - dx) - 3
+                display = dlabel
+                while tw > avail_w and len(display) > 3:
+                    display = display[:-4] + "..."
+                    tw, th = blf.dimensions(font_id, display)
+                blf.position(font_id, text_x, dy + (dh - th) / 2, 0)
+                blf.draw(font_id, display)
+
+
 _draw_callback_count = 0
 
 
@@ -487,11 +524,12 @@ def _draw_callback():
         elif state._hover_transition < 1.0:
             state._hover_transition = min(1.0, state._hover_transition + dt * 8.0)
 
-        # Feature 3: Compute bound keys, key labels, key categories
+        # Feature 3: Compute bound keys, key labels, key categories, badges
         _compute_bound_keys()
         _compute_key_labels()
         _compute_key_categories()
         _compute_key_editor_icons()
+        _compute_key_modifier_badges()
 
         colors = _get_colors()
         category_colors_enabled = _get_category_colors_enabled()
@@ -508,12 +546,12 @@ def _draw_callback():
         min_y = min(kr.y for kr in state._key_rects)
         max_y = max(kr.y + kr.h for kr in state._key_rects)
 
-        # Include filter buttons / toolbar in bounding box
-        if state._filter_editor_btn_rect:
-            fx, fy, fw, fh = state._filter_editor_btn_rect
+        # Include toolbar in bounding box
+        if state._export_button_rect:
+            fx, fy, fw, fh = state._export_button_rect
             max_y = max(max_y, fy + fh)
-        if state._filter_mode_btn_rect:
-            fx, fy, fw, fh = state._filter_mode_btn_rect
+        if state._presets_btn_rect:
+            fx, fy, fw, fh = state._presets_btn_rect
             max_y = max(max_y, fy + fh)
 
         pad = 15
@@ -750,6 +788,23 @@ def _draw_callback():
                                    kr.y + kr.h - key_icon_sz - 2,
                                    key_icon_sz)
 
+                # Draw modifier badge (bottom-right)
+                badge_count = state._key_modifier_badge_cache.get(kr.event_type, 0)
+                if badge_count > 0:
+                    badge_text = str(badge_count)
+                    badge_font_size = max(7, int(unit_px * 0.18))
+                    blf.size(font_id, badge_font_size)
+                    tw, th = blf.dimensions(font_id, badge_text)
+                    badge_x = kr.x + kr.w - tw - 3
+                    badge_y = kr.y + 3
+                    badge_bg_w = tw + 4
+                    badge_bg_h = th + 2
+                    _draw_rect(shader_uniform, badge_x - 2, badge_y - 1,
+                               badge_bg_w, badge_bg_h, (0.2, 0.2, 0.2, 0.7))
+                    blf.color(font_id, 0.9, 0.9, 0.9, 0.85)
+                    blf.position(font_id, badge_x, badge_y, 0)
+                    blf.draw(font_id, badge_text)
+
         # --- F2. Export button (Phase 6) ---
         if state._export_button_rect is not None:
             ex, ey, ew, eh = state._export_button_rect
@@ -798,81 +853,8 @@ def _draw_callback():
             blf.position(font_id, ex, ey - th - 4, 0)
             blf.draw(font_id, undo_text)
 
-        # --- Feature 4: Filter buttons ---
-        for btn_rect, hovered, filter_type in [
-            (state._filter_editor_btn_rect, state._filter_editor_hovered, 'EDITOR'),
-            (state._filter_mode_btn_rect, state._filter_mode_hovered, 'MODE'),
-        ]:
-            if btn_rect is not None:
-                fbx, fby, fbw, fbh = btn_rect
-                fb_col = colors['button_hover'] if hovered else colors['button_normal']
-                _draw_rect(shader_uniform, fbx, fby, fbw, fbh, fb_col)
-                _draw_rect_border(shader_uniform, fbx, fby, fbw, fbh, colors['border'])
-
-                if unit_px >= 20:
-                    blf.size(font_id, font_size)
-                    blf.color(font_id, *colors['text'])
-                    flabel = _get_filter_label(filter_type)
-                    # Draw PNG icon
-                    if filter_type == 'EDITOR':
-                        icon_tex = get_editor_icon(state._filter_space_type)
-                    else:
-                        icon_tex = get_mode_icon(state._filter_mode)
-                    icon_size = int(fbh * 0.6)
-                    icon_x = fbx + 4
-                    icon_y = fby + (fbh - icon_size) / 2
-                    _draw_icon(icon_tex, icon_x, icon_y, icon_size)
-                    # Shift text right to make room for icon
-                    text_x = icon_x + icon_size + 4 if icon_tex else fbx + 4
-                    tw, th = blf.dimensions(font_id, flabel)
-                    avail_w = fbw - (text_x - fbx) - 4
-                    while tw > avail_w and len(flabel) > 3:
-                        flabel = flabel[:-4] + "..."
-                        tw, th = blf.dimensions(font_id, flabel)
-                    blf.position(font_id, text_x + (avail_w - tw) / 2, fby + (fbh - th) / 2, 0)
-                    blf.draw(font_id, flabel)
-
-        # --- Feature 4: Filter dropdown ---
-        if state._filter_dropdown_open is not None and state._filter_dropdown_rects:
-            first_dd = state._filter_dropdown_rects[0]
-            dd_min_y = min(item[3] for item in state._filter_dropdown_rects)
-            dd_max_y = max(item[3] + item[5] for item in state._filter_dropdown_rects)
-            dd_x = first_dd[2] - 3
-            dd_w = first_dd[4] + 6
-            dd_h = (dd_max_y - dd_min_y) + 6
-
-            _draw_rect(shader_uniform, dd_x, dd_min_y - 3, dd_w, dd_h, colors['menu_bg'])
-            _draw_rect_border(shader_uniform, dd_x, dd_min_y - 3, dd_w, dd_h, colors['menu_border'])
-
-            current_value = state._filter_space_type if state._filter_dropdown_open == 'EDITOR' else state._filter_mode
-            for di, (dlabel, dvalue, dx, dy, dw, dh) in enumerate(state._filter_dropdown_rects):
-                if di == state._filter_dropdown_hovered:
-                    dcol = colors['menu_hover']
-                elif dvalue == current_value:
-                    dcol = (0.22, 0.28, 0.35, 1.0)
-                else:
-                    dcol = colors['menu_bg']
-                _draw_rect(shader_uniform, dx, dy, dw, dh, dcol)
-
-                if unit_px >= 20:
-                    blf.size(font_id, font_size)
-                    blf.color(font_id, *colors['text'])
-                    # Draw PNG icon for dropdown item
-                    if state._filter_dropdown_open == 'EDITOR':
-                        dd_icon_tex = get_editor_icon(dvalue)
-                    else:
-                        dd_icon_tex = get_mode_icon(dvalue)
-                    dd_icon_size = int(dh * 0.65)
-                    dd_icon_x = dx + 4
-                    dd_icon_y = dy + (dh - dd_icon_size) / 2
-                    _draw_icon(dd_icon_tex, dd_icon_x, dd_icon_y, dd_icon_size)
-                    # Shift text right
-                    dd_text_x = dd_icon_x + dd_icon_size + 4 if dd_icon_tex else dx + 8
-                    prefix = "* " if dvalue == current_value else "  "
-                    display_text = f"{prefix}{dlabel}"
-                    tw, th = blf.dimensions(font_id, display_text)
-                    blf.position(font_id, dd_text_x, dy + (dh - th) / 2, 0)
-                    blf.draw(font_id, display_text)
+        # --- Feature 4: Editor/Mode filter list panels ---
+        _draw_filter_lists(shader_uniform, font_id, font_size, unit_px, colors)
 
         # --- v0.9 Feature 6: Preset dropdown ---
         if state._preset_dropdown_open and state._preset_dropdown_rects:
@@ -936,8 +918,8 @@ def _draw_callback():
             sb_h = unit_px * 0.7
             sb_x = (rw - sb_w) / 2
             sb_y = max_y + pad + 5
-            if state._filter_editor_btn_rect:
-                fx, fy, fw, fh = state._filter_editor_btn_rect
+            if state._export_button_rect:
+                fx, fy, fw, fh = state._export_button_rect
                 sb_y = max(sb_y, fy + fh + 10)
 
             _draw_rect(shader_uniform, sb_x, sb_y, sb_w, sb_h, colors['search_bg'])
@@ -983,8 +965,11 @@ def _draw_callback():
                 blf.position(font_id, sb_x + 8, sb_y + (sb_h - th) / 2, 0)
                 blf.draw(font_id, input_display)
 
-        # --- G. Info panel ---
-        info_x = min_x - pad
+        # --- G. Info panel (to the right of filter lists) ---
+        gap = unit_px * 0.15
+        editor_list_w = unit_px * 3.5
+        mode_list_w = unit_px * 3.0
+        info_x = (min_x - pad) + editor_list_w + gap + mode_list_w + gap
         info_w = (max_x + pad) - info_x
         info_h = unit_px * 4.0
         info_y = min_y - pad - info_h - 5
@@ -1001,29 +986,16 @@ def _draw_callback():
 
             blf.color(font_id, *colors['text'])
             header = f"Key: {kr.label} ({kr.event_type})"
-            header_has_filter = (state._filter_space_type != 'ALL' or state._filter_mode != 'ALL')
+            header_has_filter = ('ALL' not in state._filter_space_types or 'ALL' not in state._filter_modes)
             if header_has_filter:
                 filter_parts = []
-                if state._filter_space_type != 'ALL':
-                    filter_parts.append(_get_filter_label('EDITOR'))
-                if state._filter_mode != 'ALL':
-                    filter_parts.append(_get_filter_label('MODE'))
+                if 'ALL' not in state._filter_space_types:
+                    filter_parts.append(_get_filter_summary('EDITOR'))
+                if 'ALL' not in state._filter_modes:
+                    filter_parts.append(_get_filter_summary('MODE'))
                 header += f"  [{' / '.join(filter_parts)}]"
             header_x = info_x + 10
             header_y = info_y + info_h - info_font_size - 5
-            # Draw filter icons inline before header text
-            if header_has_filter:
-                hdr_icon_size = int(info_font_size * 1.2)
-                if state._filter_space_type != 'ALL':
-                    hdr_icon_tex = get_editor_icon(state._filter_space_type)
-                    _draw_icon(hdr_icon_tex, header_x, header_y - 1, hdr_icon_size)
-                    if hdr_icon_tex:
-                        header_x += hdr_icon_size + 2
-                if state._filter_mode != 'ALL':
-                    hdr_icon_tex = get_mode_icon(state._filter_mode)
-                    _draw_icon(hdr_icon_tex, header_x, header_y - 1, hdr_icon_size)
-                    if hdr_icon_tex:
-                        header_x += hdr_icon_size + 2
             blf.position(font_id, header_x, header_y, 0)
             blf.draw(font_id, header)
 

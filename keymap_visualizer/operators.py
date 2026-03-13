@@ -8,7 +8,7 @@ from .layout import _compute_keyboard_layout
 from .drawing import _draw_callback
 from .handlers import (
     _handle_idle, _handle_menu_open, _handle_capture,
-    _handle_conflict, _handle_search, _handle_filter_dropdown,
+    _handle_conflict, _handle_search,
     _handle_shortcut_search, _handle_preset_dropdown,
     _handle_preset_name_input,
 )
@@ -120,8 +120,6 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
             return _handle_capture(context, event)
         elif state._modal_state == 'CONFLICT':
             return _handle_conflict(context, event)
-        elif state._modal_state == 'FILTER_DROPDOWN':
-            return _handle_filter_dropdown(context, event)
         elif state._modal_state == 'PRESET_DROPDOWN':
             return _handle_preset_dropdown(context, event)
 
@@ -194,15 +192,18 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
         state._bound_keys_cache = set()
         state._bound_keys_dirty = True
         # Feature 4: Filter cleanup
-        state._filter_space_type = 'ALL'
-        state._filter_mode = 'ALL'
-        state._filter_editor_btn_rect = None
-        state._filter_mode_btn_rect = None
-        state._filter_editor_hovered = False
-        state._filter_mode_hovered = False
-        state._filter_dropdown_open = None
-        state._filter_dropdown_rects = []
-        state._filter_dropdown_hovered = -1
+        state._filter_space_types = {'ALL'}
+        state._filter_modes = {'ALL'}
+        state._filter_editor_list_rects = []
+        state._filter_mode_list_rects = []
+        state._filter_editor_list_rect = None
+        state._filter_mode_list_rect = None
+        state._filter_editor_hovered = -1
+        state._filter_mode_hovered = -1
+        state._filter_editor_scroll = 0
+        state._filter_mode_scroll = 0
+        state._key_modifier_badge_cache = {}
+        state._key_modifier_badge_dirty = True
         # v0.9 Feature 1: Key labels cleanup
         state._key_labels_cache = {}
         state._key_labels_dirty = True
@@ -292,15 +293,18 @@ def _force_cleanup():
     state._resize_dragging = False
     state._bound_keys_cache = set()
     state._bound_keys_dirty = True
-    state._filter_space_type = 'ALL'
-    state._filter_mode = 'ALL'
-    state._filter_editor_btn_rect = None
-    state._filter_mode_btn_rect = None
-    state._filter_editor_hovered = False
-    state._filter_mode_hovered = False
-    state._filter_dropdown_open = None
-    state._filter_dropdown_rects = []
-    state._filter_dropdown_hovered = -1
+    state._filter_space_types = {'ALL'}
+    state._filter_modes = {'ALL'}
+    state._filter_editor_list_rects = []
+    state._filter_mode_list_rects = []
+    state._filter_editor_list_rect = None
+    state._filter_mode_list_rect = None
+    state._filter_editor_hovered = -1
+    state._filter_mode_hovered = -1
+    state._filter_editor_scroll = 0
+    state._filter_mode_scroll = 0
+    state._key_modifier_badge_cache = {}
+    state._key_modifier_badge_dirty = True
     state._key_labels_cache = {}
     state._key_labels_dirty = True
     state._physical_modifiers = {'ctrl': False, 'shift': False, 'alt': False, 'oskey': False}

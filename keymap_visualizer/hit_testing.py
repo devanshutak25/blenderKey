@@ -67,22 +67,18 @@ def _hit_test_resize(mx, my):
     return x <= mx <= x + w and y <= my <= y + h
 
 
-def _hit_test_filter_buttons(mx, my):
-    """Returns 'EDITOR', 'MODE', or None."""
-    if state._filter_editor_btn_rect is not None:
-        x, y, w, h = state._filter_editor_btn_rect
+def _hit_test_editor_list(mx, my):
+    """Returns item index in state._filter_editor_list_rects or -1."""
+    for i, item in enumerate(state._filter_editor_list_rects):
+        label, value, x, y, w, h = item
         if x <= mx <= x + w and y <= my <= y + h:
-            return 'EDITOR'
-    if state._filter_mode_btn_rect is not None:
-        x, y, w, h = state._filter_mode_btn_rect
-        if x <= mx <= x + w and y <= my <= y + h:
-            return 'MODE'
-    return None
+            return i
+    return -1
 
 
-def _hit_test_filter_dropdown(mx, my):
-    """Returns index into state._filter_dropdown_rects or -1."""
-    for i, item in enumerate(state._filter_dropdown_rects):
+def _hit_test_mode_list(mx, my):
+    """Returns item index in state._filter_mode_list_rects or -1."""
+    for i, item in enumerate(state._filter_mode_list_rects):
         label, value, x, y, w, h = item
         if x <= mx <= x + w and y <= my <= y + h:
             return i

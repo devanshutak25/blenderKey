@@ -10,11 +10,11 @@ from .constants import OPERATOR_ABBREVIATIONS, OPERATOR_CATEGORIES
 
 def _km_passes_filter(km):
     """Check if a keymap passes the current editor/mode filters."""
-    if state._filter_space_type != 'ALL':
-        if km.space_type != state._filter_space_type and km.space_type != 'EMPTY':
+    if 'ALL' not in state._filter_space_types:
+        if km.space_type not in state._filter_space_types and km.space_type != 'EMPTY':
             return False
-    if state._filter_mode != 'ALL':
-        if state._filter_mode not in km.name:
+    if 'ALL' not in state._filter_modes:
+        if not any(mode in km.name for mode in state._filter_modes):
             return False
     return True
 
@@ -23,8 +23,8 @@ def _get_bindings_for_key(event_type, modifiers):
     """Return list of (keymap_name, operator_idname, modifier_string, kmi, is_active)."""
     effective = state._get_effective_modifiers()
     mod_tuple = (effective['ctrl'], effective['shift'], effective['alt'], effective['oskey'])
-    cache_key = (event_type, mod_tuple, state._filter_space_type, state._filter_mode,
-                 state._modifier_source)
+    cache_key = (event_type, mod_tuple, frozenset(state._filter_space_types),
+                 frozenset(state._filter_modes), state._modifier_source)
     if state._bindings_key == cache_key:
         return state._cached_bindings
 
@@ -77,8 +77,8 @@ def _get_all_bindings_for_key(event_type):
     """
     effective = state._get_effective_modifiers()
     mod_tuple = (effective['ctrl'], effective['shift'], effective['alt'], effective['oskey'])
-    cache_key = (event_type, mod_tuple, state._filter_space_type, state._filter_mode,
-                 state._modifier_source)
+    cache_key = (event_type, mod_tuple, frozenset(state._filter_space_types),
+                 frozenset(state._filter_modes), state._modifier_source)
     if state._all_bindings_key == cache_key:
         return state._cached_all_bindings
 
@@ -357,6 +357,44 @@ def _compute_key_categories():
                     state._key_categories_cache[kmi.type] = cat
 
     state._key_categories_dirty = False
+
+
+# ---------------------------------------------------------------------------
+# Key modifier badge computation
+# ---------------------------------------------------------------------------
+def _compute_key_modifier_badges():
+    """Compute count of additional modifier combos per key (beyond current modifiers)."""
+    if not state._key_modifier_badge_dirty:
+        return
+    state._key_modifier_badge_cache = {}
+    wm = bpy.context.window_manager
+    kc = wm.keyconfigs.user
+    if kc is None:
+        state._key_modifier_badge_dirty = False
+        return
+
+    effective = state._get_effective_modifiers()
+    eff_tuple = (effective['ctrl'], effective['shift'], effective['alt'], effective['oskey'])
+
+    # For each key, collect the set of modifier combos that have bindings
+    key_mod_combos = {}  # {event_type: set of mod_tuples}
+    for km in kc.keymaps:
+        if not _km_passes_filter(km):
+            continue
+        for kmi in km.keymap_items:
+            if not kmi.active:
+                continue
+            mod_t = (kmi.ctrl, kmi.shift, kmi.alt, kmi.oskey)
+            if mod_t == eff_tuple:
+                continue  # Skip the currently-active combo
+            if kmi.type not in key_mod_combos:
+                key_mod_combos[kmi.type] = set()
+            key_mod_combos[kmi.type].add(mod_t)
+
+    for event_type, combos in key_mod_combos.items():
+        state._key_modifier_badge_cache[event_type] = len(combos)
+
+    state._key_modifier_badge_dirty = False
 
 
 # ---------------------------------------------------------------------------

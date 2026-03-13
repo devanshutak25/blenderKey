@@ -116,16 +116,21 @@ _preset_dropdown_hovered = -1
 _preset_name_input_active = False
 _preset_name_text = ""
 
-# Feature 4: Editor/Mode filters
-_filter_space_type = 'ALL'
-_filter_mode = 'ALL'
-_filter_editor_btn_rect = None   # (x, y, w, h)
-_filter_mode_btn_rect = None     # (x, y, w, h)
-_filter_editor_hovered = False
-_filter_mode_hovered = False
-_filter_dropdown_open = None     # None, 'EDITOR', or 'MODE'
-_filter_dropdown_rects = []      # [(label, value, x, y, w, h), ...]
-_filter_dropdown_hovered = -1
+# Feature 4: Editor/Mode filters (list panels)
+_filter_space_types = {'ALL'}       # set of selected values
+_filter_modes = {'ALL'}             # set of selected values
+_filter_editor_list_rects = []      # [(label, value, x, y, w, h), ...]
+_filter_mode_list_rects = []        # [(label, value, x, y, w, h), ...]
+_filter_editor_list_rect = None     # bounding box (x, y, w, h) of editor list panel
+_filter_mode_list_rect = None       # bounding box (x, y, w, h) of mode list panel
+_filter_editor_hovered = -1         # index of hovered item (-1 = none)
+_filter_mode_hovered = -1           # index of hovered item (-1 = none)
+_filter_editor_scroll = 0           # scroll offset (pixels) for overflow
+_filter_mode_scroll = 0
+
+# Key modifier badge
+_key_modifier_badge_cache = {}   # {event_type: int} — count of additional modifier combos
+_key_modifier_badge_dirty = True
 
 # Launch: deferred modal start (stored here because operator instances are
 # freed after execute() returns, so self._xxx is invalid in timer callbacks)
@@ -138,7 +143,7 @@ _target_window = None
 
 def _invalidate_cache():
     """Invalidate binding cache and mark batches dirty."""
-    global _bindings_key, _all_bindings_key, _batch_dirty, _bound_keys_dirty, _key_labels_dirty, _key_categories_dirty, _key_editor_icons_dirty
+    global _bindings_key, _all_bindings_key, _batch_dirty, _bound_keys_dirty, _key_labels_dirty, _key_categories_dirty, _key_editor_icons_dirty, _key_modifier_badge_dirty
     _bindings_key = None
     _all_bindings_key = None
     _batch_dirty = True
@@ -146,6 +151,7 @@ def _invalidate_cache():
     _key_labels_dirty = True
     _key_categories_dirty = True
     _key_editor_icons_dirty = True
+    _key_modifier_badge_dirty = True
 
 
 def _get_effective_modifiers():

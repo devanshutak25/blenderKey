@@ -8,7 +8,7 @@ from .hit_testing import (
     _hit_test_key, _hit_test_export,
     _hit_test_conflict_buttons, _hit_test_gpu_menu,
     _hit_test_close, _hit_test_resize,
-    _hit_test_filter_buttons, _hit_test_filter_dropdown,
+    _hit_test_editor_list, _hit_test_mode_list,
     _hit_test_presets_button, _hit_test_preset_dropdown,
 )
 from .keymap_data import (
@@ -17,7 +17,7 @@ from .keymap_data import (
     _push_undo, _do_undo, _do_redo,
 )
 from .export import _do_export
-from .drawing import _build_gpu_menu, _build_filter_dropdown, _build_preset_dropdown
+from .drawing import _build_gpu_menu, _build_preset_dropdown
 from .constants import _CAPTURABLE_KEYS, MODIFIER_KEY_TO_DICT
 
 
@@ -111,7 +111,6 @@ def _handle_idle(context, event):
         new_export_hover = _hit_test_export(mx, my)
         new_close_hover = _hit_test_close(mx, my)
         new_resize_hover = _hit_test_resize(mx, my)
-        new_filter_btn = _hit_test_filter_buttons(mx, my)
         new_presets_hover = _hit_test_presets_button(mx, my)
 
         changed = False
@@ -128,9 +127,9 @@ def _handle_idle(context, event):
         if new_resize_hover != state._resize_hovered:
             state._resize_hovered = new_resize_hover
             changed = True
-        # Filter button hover
-        new_editor_hover = (new_filter_btn == 'EDITOR')
-        new_mode_hover = (new_filter_btn == 'MODE')
+        # Editor/Mode list hover
+        new_editor_hover = _hit_test_editor_list(mx, my)
+        new_mode_hover = _hit_test_mode_list(mx, my)
         if new_editor_hover != state._filter_editor_hovered:
             state._filter_editor_hovered = new_editor_hover
             changed = True
@@ -161,14 +160,40 @@ def _handle_idle(context, event):
             state._resize_drag_start_scale = state._user_scale
             return {'RUNNING_MODAL'}
 
-        # Feature 4: Check filter buttons
-        filter_hit = _hit_test_filter_buttons(mx, my)
-        if filter_hit is not None:
-            btn_rect = state._filter_editor_btn_rect if filter_hit == 'EDITOR' else state._filter_mode_btn_rect
-            region_w, region_h = state._cached_region_size
-            _build_filter_dropdown(filter_hit, btn_rect, region_w, region_h)
-            state._filter_dropdown_open = filter_hit
-            state._modal_state = 'FILTER_DROPDOWN'
+        # Feature 4: Check editor list click
+        editor_hit = _hit_test_editor_list(mx, my)
+        if editor_hit >= 0:
+            item = state._filter_editor_list_rects[editor_hit]
+            value = item[1]
+            if value == 'ALL':
+                state._filter_space_types = {'ALL'}
+            elif value in state._filter_space_types:
+                state._filter_space_types.discard(value)
+                if not state._filter_space_types:
+                    state._filter_space_types = {'ALL'}
+            else:
+                state._filter_space_types.discard('ALL')
+                state._filter_space_types.add(value)
+            state._invalidate_cache()
+            if state._target_area is not None:
+                state._target_area.tag_redraw()
+            return {'RUNNING_MODAL'}
+
+        # Check mode list click
+        mode_hit = _hit_test_mode_list(mx, my)
+        if mode_hit >= 0:
+            item = state._filter_mode_list_rects[mode_hit]
+            value = item[1]
+            if value == 'ALL':
+                state._filter_modes = {'ALL'}
+            elif value in state._filter_modes:
+                state._filter_modes.discard(value)
+                if not state._filter_modes:
+                    state._filter_modes = {'ALL'}
+            else:
+                state._filter_modes.discard('ALL')
+                state._filter_modes.add(value)
+            state._invalidate_cache()
             if state._target_area is not None:
                 state._target_area.tag_redraw()
             return {'RUNNING_MODAL'}
@@ -481,61 +506,6 @@ def _handle_conflict(context, event):
         state._conflict_button_rects.clear()
         state._conflict_data['conflicts'] = []
         state._menu_context.clear()
-        state._batch_dirty = True
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
-        return {'RUNNING_MODAL'}
-
-    return {'RUNNING_MODAL'}
-
-
-def _handle_filter_dropdown(context, event):
-    """Handle events while a filter dropdown is open."""
-    if event.type == 'MOUSEMOVE':
-        new_hover = _hit_test_filter_dropdown(event.mouse_region_x, event.mouse_region_y)
-        if new_hover != state._filter_dropdown_hovered:
-            state._filter_dropdown_hovered = new_hover
-            if state._target_area is not None:
-                state._target_area.tag_redraw()
-        return {'RUNNING_MODAL'}
-
-    if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
-        mx, my = event.mouse_region_x, event.mouse_region_y
-        dd_hit = _hit_test_filter_dropdown(mx, my)
-
-        if dd_hit >= 0:
-            label, value = state._filter_dropdown_rects[dd_hit][:2]
-            if state._filter_dropdown_open == 'EDITOR':
-                state._filter_space_type = value
-            else:
-                state._filter_mode = value
-            state._invalidate_cache()
-
-        # Close dropdown
-        state._filter_dropdown_open = None
-        state._filter_dropdown_rects = []
-        state._filter_dropdown_hovered = -1
-        state._modal_state = 'IDLE'
-        state._batch_dirty = True
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
-        return {'RUNNING_MODAL'}
-
-    if event.type == 'ESC' and event.value == 'PRESS':
-        state._filter_dropdown_open = None
-        state._filter_dropdown_rects = []
-        state._filter_dropdown_hovered = -1
-        state._modal_state = 'IDLE'
-        state._batch_dirty = True
-        if state._target_area is not None:
-            state._target_area.tag_redraw()
-        return {'RUNNING_MODAL'}
-
-    if event.type == 'RIGHTMOUSE' and event.value == 'PRESS':
-        state._filter_dropdown_open = None
-        state._filter_dropdown_rects = []
-        state._filter_dropdown_hovered = -1
-        state._modal_state = 'IDLE'
         state._batch_dirty = True
         if state._target_area is not None:
             state._target_area.tag_redraw()
