@@ -141,7 +141,7 @@ keymap_visualizer/
 
 1. Fork the repo and create a feature branch
 2. Keep changes focused — one feature or fix per PR
-3. Test in Blender 4.2+ before submitting
+3. Test in Blender 5.0+ before submitting
 4. Open a pull request with a clear description of what changed and why
 
 ---
