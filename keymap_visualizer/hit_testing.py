@@ -118,3 +118,39 @@ def _hit_test_preset_dropdown(mx, my):
         if x <= mx <= x + w and y <= my <= y + h:
             return i
     return -1
+
+
+def _hit_test_operator_group(mx, my):
+    """Returns category string if click is on an operator group header, else None."""
+    if state._operator_list_rect is None or not _point_in_rect(mx, my, state._operator_list_rect):
+        return None
+    scroll = state._operator_list_scroll
+    for category, x, y, w, h in state._operator_list_group_rects:
+        actual_y = y + scroll
+        if x <= mx <= x + w and actual_y <= my <= actual_y + h:
+            px, py, pw, ph = state._operator_list_rect
+            if actual_y >= py and actual_y + h <= py + ph:
+                return category
+    return None
+
+
+def _hit_test_operator_item(mx, my):
+    """Returns index into state._operator_list_item_rects or -1."""
+    if state._operator_list_rect is None or not _point_in_rect(mx, my, state._operator_list_rect):
+        return -1
+    scroll = state._operator_list_scroll
+    for i, (op_id, human_name, x, y, w, h) in enumerate(state._operator_list_item_rects):
+        actual_y = y + scroll
+        if x <= mx <= x + w and actual_y <= my <= actual_y + h:
+            px, py, pw, ph = state._operator_list_rect
+            if actual_y >= py and actual_y + h <= py + ph:
+                return i
+    return -1
+
+
+def _hit_test_op_flyout(mx, my):
+    """Returns index into state._op_flyout_items or -1."""
+    for i, (label, action, x, y, w, h) in enumerate(state._op_flyout_items):
+        if x <= mx <= x + w and y <= my <= y + h:
+            return i
+    return -1

@@ -4,7 +4,7 @@ Keymap Visualizer – Keymap query, conflict detection, rebinding, search filter
 
 import bpy
 from . import state
-from .constants import OPERATOR_ABBREVIATIONS, OPERATOR_CATEGORIES
+from .constants import OPERATOR_ABBREVIATIONS, OPERATOR_CATEGORIES, OPERATOR_CATEGORY_ORDER, OPERATOR_CATEGORY_KEYMAPS
 
 
 def _kmi_matches_modifiers(kmi, effective):
@@ -430,3 +430,103 @@ def _do_redo():
             pass
     state._undo_stack.append(undo_entry)
     return True
+
+
+# ---------------------------------------------------------------------------
+# Operator List panel: data collection and binding management
+# ---------------------------------------------------------------------------
+
+def _collect_all_operators():
+    """Collect all user-facing operators from bpy.ops, categorized."""
+    categories = {cat: [] for cat in OPERATOR_CATEGORY_ORDER}
+    seen = set()
+    for submod_name in sorted(dir(bpy.ops)):
+        if submod_name.startswith('_'):
+            continue
+        submod = getattr(bpy.ops, submod_name, None)
+        if submod is None:
+            continue
+        for op_name in sorted(dir(submod)):
+            if op_name.startswith('_'):
+                continue
+            op_id = f"{submod_name}.{op_name}"
+            if op_id in seen:
+                continue
+            seen.add(op_id)
+            # Categorize
+            cat = _get_operator_category(op_id)
+            if cat is None:
+                cat = "Other"
+            # Human-readable name
+            if op_id in OPERATOR_ABBREVIATIONS:
+                human_name = OPERATOR_ABBREVIATIONS[op_id]
+            else:
+                human_name = _humanize_op_id(op_id)
+            if cat not in categories:
+                categories[cat] = []
+            categories[cat].append((op_id, human_name))
+    # Sort each category alphabetically by human name
+    for cat in categories:
+        categories[cat].sort(key=lambda x: x[1].lower())
+    state._operator_list_categories = categories
+    state._operator_list_dirty = False
+
+
+def _compute_bound_operators():
+    """Compute the set of operator idnames that have active keybindings."""
+    if not state._operator_list_bound_ops_dirty:
+        return
+    state._operator_list_bound_ops = set()
+    for km, kmi in _iter_filtered_kmis(check_active=True, check_modifiers=False):
+        state._operator_list_bound_ops.add(kmi.idname)
+    state._operator_list_bound_ops_dirty = False
+
+
+def _get_target_keymap_for_op(op_id):
+    """Return (km_name, km_ref) for the best keymap to add a binding to."""
+    wm = bpy.context.window_manager
+    kc = wm.keyconfigs.user
+    if kc is None:
+        return ("Window", None)
+    # Match longest prefix
+    best_km_name = "Window"
+    best_len = 0
+    for prefix, km_name in OPERATOR_CATEGORY_KEYMAPS.items():
+        if op_id.startswith(prefix) and len(prefix) > best_len:
+            best_km_name = km_name
+            best_len = len(prefix)
+    km_ref = kc.keymaps.get(best_km_name)
+    if km_ref is None:
+        km_ref = kc.keymaps.get("Window")
+        best_km_name = "Window"
+    return (best_km_name, km_ref)
+
+
+def _create_new_binding(op_id, key_type, ctrl, shift, alt, oskey):
+    """Create a new keybinding for an operator. Returns the new KMI or None."""
+    km_name, km = _get_target_keymap_for_op(op_id)
+    if km is None:
+        return None
+    new_kmi = km.keymap_items.new(op_id, key_type, 'PRESS',
+                                   ctrl=ctrl, shift=shift, alt=alt, oskey=oskey)
+    _push_undo([new_kmi])
+    state._invalidate_cache()
+    return new_kmi
+
+
+def _remove_all_bindings_for_op(op_id):
+    """Deactivate all keybindings for a given operator across all keymaps."""
+    wm = bpy.context.window_manager
+    kc = wm.keyconfigs.user
+    if kc is None:
+        return
+    matching = []
+    for km in kc.keymaps:
+        for kmi in km.keymap_items:
+            if kmi.idname == op_id and kmi.active:
+                matching.append(kmi)
+    if matching:
+        _push_undo(matching)
+        for kmi in matching:
+            kmi.active = False
+        state._invalidate_cache()

@@ -153,13 +153,14 @@ def _compute_keyboard_layout(region_width, region_height):
     handle_size = max(12, unit_px * 0.4)
     state._resize_handle_rect = (all_max_x + pad - handle_size, all_min_y - pad, handle_size, handle_size)
 
-    # --- Bottom panel: Editor list + Mode list + Info panel ---
+    # --- Bottom panel: Editor list + Mode list + Operators + Info panel ---
     min_x = min(kr.x for kr in state._key_rects)
-    gap = unit_px * 0.15
+    gap = unit_px * 0.12
     panel_h = unit_px * 4.0
     panel_y = all_min_y - pad - panel_h - max(3, int(unit_px * 0.06))
-    editor_list_w = unit_px * 3.5
-    mode_list_w = unit_px * 3.0
+    editor_list_w = unit_px * 2.8
+    mode_list_w = unit_px * 2.5
+    operator_list_w = unit_px * 3.0
     panel_start_x = min_x - pad
 
     # Editor list panel bounding box
@@ -168,6 +169,10 @@ def _compute_keyboard_layout(region_width, region_height):
     # Mode list panel bounding box
     mode_list_x = panel_start_x + editor_list_w + gap
     state._filter_mode_list_rect = (mode_list_x, panel_y, mode_list_w, panel_h)
+
+    # Operator list panel bounding box
+    operator_list_x = mode_list_x + mode_list_w + gap
+    state._operator_list_rect = (operator_list_x, panel_y, operator_list_w, panel_h)
 
     # Compute list item rects (leave room for header at top)
     item_h = max(20, unit_px * 0.5)

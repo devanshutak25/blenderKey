@@ -160,6 +160,33 @@ _tooltip_hover_start = 0.0  # time.monotonic() when hover began
 _key_modifier_badge_cache = {}   # {event_type: int} — count of additional modifier combos
 _key_modifier_badge_dirty = True
 
+# Operator List panel
+_operator_list_rect = None              # (x, y, w, h) panel bounding box
+_operator_list_categories = {}          # {category: [(op_id, human_name), ...]} cached
+_operator_list_dirty = True             # needs rebuild from bpy.ops
+_operator_list_expanded = set()         # set of category names currently expanded
+_operator_list_group_rects = []         # [(category, x, y, w, h), ...] rebuilt each frame
+_operator_list_item_rects = []          # [(op_id, human_name, x, y, w, h), ...] rebuilt each frame
+_operator_list_scroll = 0
+_operator_list_max_scroll = 0
+_operator_list_hovered_group = -1       # index into group_rects
+_operator_list_hovered_item = -1        # index into item_rects
+_operator_list_search_text = ''
+_operator_list_search_active = False
+_operator_list_bound_ops = set()        # op_ids with active bindings
+_operator_list_bound_ops_dirty = True
+
+# Operator flyout
+_op_flyout_items = []                   # [(label, action, x, y, w, h), ...]
+_op_flyout_hovered = -1
+_op_flyout_target_op_id = None
+_op_flyout_visible = False
+
+# Capture-for-new-binding mode
+_capture_new_binding = False
+_capture_target_op_id = None
+_capture_target_km_name = None
+
 # Launch: deferred modal start (stored here because operator instances are
 # freed after execute() returns, so self._xxx is invalid in timer callbacks)
 _launch_window = None
@@ -203,6 +230,13 @@ def _reset_all_state():
     global _launch_retry_count
     global _nav_focus, _nav_key_index
     global _tooltip_text, _tooltip_hover_start
+    global _operator_list_rect, _operator_list_dirty
+    global _operator_list_scroll, _operator_list_max_scroll
+    global _operator_list_hovered_group, _operator_list_hovered_item
+    global _operator_list_search_text, _operator_list_search_active
+    global _operator_list_bound_ops, _operator_list_bound_ops_dirty
+    global _op_flyout_hovered, _op_flyout_target_op_id, _op_flyout_visible
+    global _capture_new_binding, _capture_target_op_id, _capture_target_km_name
 
     _draw_handle = None
     _target_area = None
@@ -297,11 +331,32 @@ def _reset_all_state():
     _key_row_map.clear()
     _tooltip_text = ""
     _tooltip_hover_start = 0.0
+    _operator_list_rect = None
+    _operator_list_categories.clear()
+    _operator_list_dirty = True
+    _operator_list_expanded.clear()
+    _operator_list_group_rects.clear()
+    _operator_list_item_rects.clear()
+    _operator_list_scroll = 0
+    _operator_list_max_scroll = 0
+    _operator_list_hovered_group = -1
+    _operator_list_hovered_item = -1
+    _operator_list_search_text = ''
+    _operator_list_search_active = False
+    _operator_list_bound_ops = set()
+    _operator_list_bound_ops_dirty = True
+    _op_flyout_items.clear()
+    _op_flyout_hovered = -1
+    _op_flyout_target_op_id = None
+    _op_flyout_visible = False
+    _capture_new_binding = False
+    _capture_target_op_id = None
+    _capture_target_km_name = None
 
 
 def _invalidate_cache():
     """Invalidate binding cache and mark batches dirty."""
-    global _bindings_key, _all_bindings_key, _batch_dirty, _bound_keys_dirty, _key_labels_dirty, _key_categories_dirty, _key_editor_icons_dirty, _key_modifier_badge_dirty
+    global _bindings_key, _all_bindings_key, _batch_dirty, _bound_keys_dirty, _key_labels_dirty, _key_categories_dirty, _key_editor_icons_dirty, _key_modifier_badge_dirty, _operator_list_bound_ops_dirty
     _bindings_key = None
     _all_bindings_key = None
     _batch_dirty = True
@@ -310,6 +365,7 @@ def _invalidate_cache():
     _key_categories_dirty = True
     _key_editor_icons_dirty = True
     _key_modifier_badge_dirty = True
+    _operator_list_bound_ops_dirty = True
 
 
 def _get_effective_modifiers():

@@ -182,6 +182,29 @@ OPERATOR_CATEGORIES = {
     "file.": "File",
 }
 
+OPERATOR_CATEGORY_ORDER = [
+    "Transform", "Navigation", "Mesh", "Object", "Edit",
+    "Sculpt", "Paint", "UV", "Nodes", "Animation",
+    "Playback", "File", "System", "Other",
+]
+
+# Maps operator prefix → best-guess keymap name for new bindings
+OPERATOR_CATEGORY_KEYMAPS = {
+    "transform.": "3D View",
+    "view3d.":    "3D View",
+    "mesh.":      "Mesh",
+    "object.":    "Object Mode",
+    "screen.":    "Screen",
+    "anim.":      "Dopesheet",
+    "node.":      "Node Editor",
+    "uv.":        "UV Editor",
+    "sculpt.":    "Sculpt",
+    "paint.":     "Image Paint",
+    "wm.":        "Window",
+    "ed.":        "Screen",
+    "file.":      "Window",
+}
+
 CATEGORY_COLORS = {
     "Transform": (0.45, 0.30, 0.15, 0.90),
     "Navigation": (0.15, 0.35, 0.38, 0.90),

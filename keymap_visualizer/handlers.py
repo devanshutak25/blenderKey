@@ -11,11 +11,14 @@ from .hit_testing import (
     _hit_test_editor_list, _hit_test_mode_list,
     _hit_test_presets_button, _hit_test_preset_dropdown,
     _hit_test_info_panel_group,
+    _hit_test_operator_group, _hit_test_operator_item, _hit_test_op_flyout,
+    _point_in_rect,
 )
 from .keymap_data import (
     _get_bindings_for_key, _find_conflicts, _apply_rebind,
     _reset_kmi_to_default, _update_search_filter,
     _push_undo, _do_undo, _do_redo,
+    _create_new_binding, _remove_all_bindings_for_op, _get_target_keymap_for_op,
 )
 from .export import _do_export
 from .drawing import _build_gpu_menu, _build_flyout, _build_preset_dropdown
@@ -224,6 +227,8 @@ def _handle_idle(context, event):
                 state._filter_editor_scroll = max(0, min(max_scroll, new_scroll))
             elif state._filter_scroll_drag_target == 'INFO':
                 state._info_panel_scroll = max(0, min(state._info_panel_max_scroll, new_scroll))
+            elif state._filter_scroll_drag_target == 'OPERATOR':
+                state._operator_list_scroll = max(0, min(state._operator_list_max_scroll, new_scroll))
             else:
                 total_h = len(state._filter_mode_list_rects) * item_h + header_h
                 px, py, pw, ph = state._filter_mode_list_rect
@@ -259,6 +264,16 @@ def _handle_idle(context, event):
                 _tag_redraw()
                 return {'RUNNING_MODAL'}
 
+        # Operator list scroll
+        if state._operator_list_rect is not None:
+            px, py, pw, ph = state._operator_list_rect
+            if px <= mx <= px + pw and py <= my <= py + ph:
+                scroll_step_op = max(18, _get_unit_px() * 0.40)
+                delta = -scroll_step_op if event.type == 'WHEELUPMOUSE' else scroll_step_op
+                state._operator_list_scroll = max(0, min(state._operator_list_max_scroll, state._operator_list_scroll + delta))
+                _tag_redraw()
+                return {'RUNNING_MODAL'}
+
         # Info panel scroll
         if state._info_panel_rect is not None:
             px, py, pw, ph = state._info_panel_rect
@@ -276,6 +291,7 @@ def _handle_idle(context, event):
             (state._filter_editor_list_rect, state._filter_editor_scroll, 'EDITOR'),
             (state._filter_mode_list_rect, state._filter_mode_scroll, 'MODE'),
             (state._info_panel_rect, state._info_panel_scroll, 'INFO'),
+            (state._operator_list_rect, state._operator_list_scroll, 'OPERATOR'),
         ]:
             if panel_rect is None:
                 continue
@@ -320,6 +336,29 @@ def _handle_idle(context, event):
         # Presets button hover
         if new_presets_hover != state._presets_hovered:
             state._presets_hovered = new_presets_hover
+            changed = True
+        # Operator list hover
+        new_op_group = -1
+        new_op_item = -1
+        if state._operator_list_rect and _point_in_rect(mx, my, state._operator_list_rect):
+            # Check group headers
+            for gi, (cat, gx, gy, gw, gh) in enumerate(state._operator_list_group_rects):
+                actual_y = gy + state._operator_list_scroll
+                if gx <= mx <= gx + gw and actual_y <= my <= actual_y + gh:
+                    new_op_group = gi
+                    break
+            # Check items
+            if new_op_group < 0:
+                for ii, (oid, hname, ix, iy, iw, ih) in enumerate(state._operator_list_item_rects):
+                    actual_y = iy + state._operator_list_scroll
+                    if ix <= mx <= ix + iw and actual_y <= my <= actual_y + ih:
+                        new_op_item = ii
+                        break
+        if new_op_group != state._operator_list_hovered_group:
+            state._operator_list_hovered_group = new_op_group
+            changed = True
+        if new_op_item != state._operator_list_hovered_item:
+            state._operator_list_hovered_item = new_op_item
             changed = True
 
         # L4: Tooltip tracking
@@ -368,6 +407,42 @@ def _handle_idle(context, event):
         if mode_hit >= 0:
             item = state._filter_mode_list_rects[mode_hit]
             _toggle_filter_item(state._filter_modes, item[1])
+            return {'RUNNING_MODAL'}
+
+        # Check operator list clicks
+        if state._operator_list_rect and _point_in_rect(mx, my, state._operator_list_rect):
+            # Search box click
+            if state._operator_list_rect:
+                opx, opy, opw, oph = state._operator_list_rect
+                header_h = max(16, _get_unit_px() * 0.35)
+                search_h = max(20, _get_unit_px() * 0.45)
+                sp1 = max(1, int(_get_unit_px() * 0.02))
+                sp2 = max(2, int(_get_unit_px() * 0.04))
+                search_y = opy + oph - header_h - search_h - sp1
+                search_x = opx + sp2
+                search_w = opw - sp2 * 2
+                if search_x <= mx <= search_x + search_w and search_y <= my <= search_y + search_h:
+                    state._operator_list_search_active = True
+                    _tag_redraw()
+                    return {'RUNNING_MODAL'}
+
+            # Group header click (expand/collapse)
+            op_group = _hit_test_operator_group(mx, my)
+            if op_group is not None:
+                if op_group in state._operator_list_expanded:
+                    state._operator_list_expanded.discard(op_group)
+                else:
+                    state._operator_list_expanded.add(op_group)
+                _tag_redraw()
+                return {'RUNNING_MODAL'}
+
+            # Operator item click (open flyout)
+            op_item = _hit_test_operator_item(mx, my)
+            if op_item >= 0 and op_item < len(state._operator_list_item_rects):
+                op_id, human_name, ix, iy, iw, ih = state._operator_list_item_rects[op_item]
+                _build_op_flyout(op_id, mx, my)
+                return {'RUNNING_MODAL'}
+
             return {'RUNNING_MODAL'}
 
         # Check info panel group header click
@@ -496,7 +571,7 @@ def _handle_idle(context, event):
 
     # C2: Tab to cycle panels
     if event.type == 'TAB' and event.value == 'PRESS' and not event.ctrl and not event.alt:
-        panels = ['KEYS', 'EDITOR_LIST', 'MODE_LIST', 'INFO_PANEL']
+        panels = ['KEYS', 'EDITOR_LIST', 'MODE_LIST', 'OPERATOR_LIST', 'INFO_PANEL']
         idx = panels.index(state._nav_focus) if state._nav_focus in panels else 0
         if event.shift:
             idx = (idx - 1) % len(panels)
@@ -674,6 +749,9 @@ def _handle_capture(context, event):
     if event.type == 'ESC':
         state._modal_state = 'IDLE'
         state._menu_context.clear()
+        state._capture_new_binding = False
+        state._capture_target_op_id = None
+        state._capture_target_km_name = None
         state._batch_dirty = True
         _tag_redraw()
         return {'RUNNING_MODAL'}
@@ -685,6 +763,27 @@ def _handle_capture(context, event):
         new_alt = event.alt
         new_oskey = event.oskey
 
+        # New binding mode (from operator list)
+        if state._capture_new_binding:
+            op_id = state._capture_target_op_id
+            # Check for conflicts (no exclude_kmi since this is new)
+            conflicts = _find_conflicts(new_type, new_ctrl, new_shift, new_alt, new_oskey)
+            if not conflicts:
+                _create_new_binding(op_id, new_type, new_ctrl, new_shift, new_alt, new_oskey)
+                state._modal_state = 'IDLE'
+            else:
+                # For new bindings, still allow conflict resolution
+                # Create the binding first, then let user decide
+                new_kmi = _create_new_binding(op_id, new_type, new_ctrl, new_shift, new_alt, new_oskey)
+                state._modal_state = 'IDLE'
+            state._capture_new_binding = False
+            state._capture_target_op_id = None
+            state._capture_target_km_name = None
+            state._batch_dirty = True
+            _tag_redraw()
+            return {'RUNNING_MODAL'}
+
+        # Existing rebind mode
         kmi = state._menu_context.get('target_kmi')
         km_name = state._menu_context.get('target_km_name')
         if kmi is None:
@@ -978,3 +1077,176 @@ def _push_undo_all_keymaps():
             break
     if kmis:
         _push_undo(kmis)
+
+
+# ---------------------------------------------------------------------------
+# Operator list: flyout menu builder and handlers
+# ---------------------------------------------------------------------------
+
+def _build_op_flyout(op_id, mx, my):
+    """Build the operator flyout menu at mouse position."""
+    unit_px = _get_unit_px()
+    sp5 = max(8, int(unit_px * 0.13))
+    action_h = max(22, int(unit_px * 0.40))
+    padding = max(2, int(unit_px * 0.03))
+
+    import blf
+    font_id = 0
+    action_font_size = max(9, int(unit_px * 0.25))
+    blf.size(font_id, action_font_size)
+
+    actions = [
+        ("Assign Shortcut", "ASSIGN"),
+        ("View Bindings", "VIEW"),
+        ("Remove All Bindings", "REMOVE_ALL"),
+        ("Open in Preferences", "OPEN_PREFS"),
+    ]
+
+    max_tw = 0
+    for label, _ in actions:
+        tw, _ = blf.dimensions(font_id, label)
+        max_tw = max(max_tw, tw)
+
+    flyout_w = int(max_tw + sp5 * 4)
+    flyout_w = max(flyout_w, 160)
+
+    region_w, region_h = state._cached_region_size
+    flyout_x = mx
+    flyout_y = my
+
+    # Clamp to screen
+    if flyout_x + flyout_w > region_w:
+        flyout_x = region_w - flyout_w - 5
+    total_flyout_h = len(actions) * (action_h + padding)
+    if flyout_y - total_flyout_h < 5:
+        flyout_y = total_flyout_h + 5
+
+    state._op_flyout_items.clear()
+    for i, (alabel, aaction) in enumerate(actions):
+        iy = flyout_y - (i + 1) * (action_h + padding)
+        state._op_flyout_items.append((alabel, aaction, flyout_x, iy, flyout_w, action_h))
+
+    state._op_flyout_target_op_id = op_id
+    state._op_flyout_hovered = -1
+    state._op_flyout_visible = True
+    state._modal_state = 'OP_FLYOUT'
+    _tag_redraw()
+
+
+def _dismiss_op_flyout():
+    """Clear operator flyout state."""
+    state._op_flyout_items.clear()
+    state._op_flyout_hovered = -1
+    state._op_flyout_visible = False
+    state._op_flyout_target_op_id = None
+    state._modal_state = 'IDLE'
+    _tag_redraw()
+
+
+def _handle_op_flyout(context, event):
+    """Handle events while the operator flyout menu is open."""
+    if event.type == 'MOUSEMOVE':
+        mx, my = event.mouse_region_x, event.mouse_region_y
+        new_hover = _hit_test_op_flyout(mx, my)
+        if new_hover != state._op_flyout_hovered:
+            state._op_flyout_hovered = new_hover
+            _tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+        mx, my = event.mouse_region_x, event.mouse_region_y
+        hit = _hit_test_op_flyout(mx, my)
+        if hit >= 0:
+            label, action, fx, fy, fw, fh = state._op_flyout_items[hit]
+            op_id = state._op_flyout_target_op_id
+
+            if action == 'ASSIGN':
+                km_name, km_ref = _get_target_keymap_for_op(op_id)
+                state._capture_new_binding = True
+                state._capture_target_op_id = op_id
+                state._capture_target_km_name = km_name
+                _dismiss_op_flyout()
+                state._modal_state = 'CAPTURE'
+                _tag_redraw()
+                return {'RUNNING_MODAL'}
+
+            elif action == 'VIEW':
+                # Highlight keys bound to this operator
+                import bpy
+                wm = bpy.context.window_manager
+                kc = wm.keyconfigs.user
+                if kc:
+                    for km in kc.keymaps:
+                        for kmi in km.keymap_items:
+                            if kmi.idname == op_id and kmi.active:
+                                # Find and select the key
+                                for ki, kr in enumerate(state._key_rects):
+                                    if kr.event_type == kmi.type:
+                                        state._selected_key_index = ki
+                                        state._active_modifiers['ctrl'] = kmi.ctrl
+                                        state._active_modifiers['shift'] = kmi.shift
+                                        state._active_modifiers['alt'] = kmi.alt
+                                        state._active_modifiers['oskey'] = kmi.oskey
+                                        state._invalidate_cache()
+                                        break
+                                break
+                _dismiss_op_flyout()
+                return {'RUNNING_MODAL'}
+
+            elif action == 'REMOVE_ALL':
+                _remove_all_bindings_for_op(op_id)
+                _dismiss_op_flyout()
+                return {'RUNNING_MODAL'}
+
+            elif action == 'OPEN_PREFS':
+                import bpy
+                try:
+                    bpy.ops.screen.userpref_show('INVOKE_DEFAULT')
+                except Exception:
+                    pass
+                _dismiss_op_flyout()
+                return {'RUNNING_MODAL'}
+
+        # Click outside — dismiss
+        _dismiss_op_flyout()
+        return {'RUNNING_MODAL'}
+
+    if event.type in ('ESC', 'RIGHTMOUSE') and event.value == 'PRESS':
+        _dismiss_op_flyout()
+        return {'RUNNING_MODAL'}
+
+    return {'RUNNING_MODAL'}
+
+
+def _handle_operator_search(context, event):
+    """Handle text input for operator list search."""
+    if not state._operator_list_search_active:
+        return None
+
+    if event.type == 'ESC' and event.value == 'PRESS':
+        state._operator_list_search_active = False
+        state._operator_list_search_text = ''
+        state._operator_list_scroll = 0
+        _tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.type == 'RET' and event.value == 'PRESS':
+        state._operator_list_search_active = False
+        _tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    if event.type == 'BACK_SPACE' and event.value == 'PRESS':
+        if state._operator_list_search_text:
+            state._operator_list_search_text = state._operator_list_search_text[:-1]
+            state._operator_list_scroll = 0
+            _tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    # Printable character input
+    if event.value == 'PRESS' and event.unicode and event.unicode.isprintable():
+        state._operator_list_search_text += event.unicode
+        state._operator_list_scroll = 0
+        _tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    return None

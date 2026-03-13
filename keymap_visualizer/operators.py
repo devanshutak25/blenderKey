@@ -11,6 +11,7 @@ from .handlers import (
     _handle_conflict, _handle_search,
     _handle_shortcut_search, _handle_preset_dropdown,
     _handle_preset_name_input,
+    _handle_op_flyout, _handle_operator_search,
 )
 
 
@@ -107,6 +108,12 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
             if result is not None:
                 return result
 
+        # Operator list search takes priority when active
+        if state._operator_list_search_active and state._modal_state == 'IDLE':
+            result = _handle_operator_search(context, event)
+            if result is not None:
+                return result
+
         # Search mode takes priority when active (Phase 7)
         if state._search_active and state._modal_state == 'IDLE':
             result = _handle_search(context, event)
@@ -122,6 +129,8 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
             return _handle_conflict(context, event)
         elif state._modal_state == 'PRESET_DROPDOWN':
             return _handle_preset_dropdown(context, event)
+        elif state._modal_state == 'OP_FLYOUT':
+            return _handle_op_flyout(context, event)
 
         # IDLE state
         result = _handle_idle(context, event)
