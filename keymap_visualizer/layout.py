@@ -121,7 +121,7 @@ def _compute_keyboard_layout(region_width, region_height):
     # --- Feature 1: Close button (top-right of keyboard frame) ---
     all_max_x = max(kr.x + kr.w for kr in state._key_rects)
     all_max_y = toolbar_y + toolbar_h  # top of toolbar
-    pad = 15
+    pad = max(10, int(unit_px * 0.25))  # M5: scaled padding (matches drawing.py)
     btn_size = unit_px * 0.6
     state._close_button_rect = (all_max_x + pad - btn_size, all_max_y + pad - btn_size, btn_size, btn_size)
 
@@ -134,7 +134,7 @@ def _compute_keyboard_layout(region_width, region_height):
     min_x = min(kr.x for kr in state._key_rects)
     gap = unit_px * 0.15
     panel_h = unit_px * 4.0
-    panel_y = all_min_y - pad - panel_h - 5
+    panel_y = all_min_y - pad - panel_h - max(3, int(unit_px * 0.06))
     editor_list_w = unit_px * 3.5
     mode_list_w = unit_px * 3.0
     panel_start_x = min_x - pad
@@ -159,3 +159,21 @@ def _compute_keyboard_layout(region_width, region_height):
     for i, (value, label) in enumerate(MODE_FILTERS):
         iy = panel_y + panel_h - header_h - (i + 1) * item_h
         state._filter_mode_list_rects.append((label, value, mode_list_x, iy, mode_list_w, item_h))
+
+    # C2: Build spatial index for keyboard navigation
+    _compute_key_grid()
+
+
+def _compute_key_grid():
+    """Build row-based spatial index from _key_rects for arrow navigation."""
+    state._key_row_map = []
+    if not state._key_rects:
+        return
+    from collections import defaultdict
+    y_buckets = defaultdict(list)
+    for i, kr in enumerate(state._key_rects):
+        row_y = round(kr.y, -1)  # round to nearest 10
+        y_buckets[row_y].append(i)
+    for row_y in sorted(y_buckets.keys()):
+        row_indices = sorted(y_buckets[row_y], key=lambda i: state._key_rects[i].x)
+        state._key_row_map.append(row_indices)

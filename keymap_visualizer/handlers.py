@@ -101,6 +101,53 @@ def _update_physical_modifiers(event):
     return changed
 
 
+def _navigate_key(direction):
+    """Move keyboard focus in the given direction ('UP','DOWN','LEFT','RIGHT').
+    Updates state._nav_key_index. Returns True if moved."""
+    if not state._key_row_map or not state._key_rects:
+        return False
+    current = state._nav_key_index
+    if current < 0 or current >= len(state._key_rects):
+        state._nav_key_index = 0
+        return True
+    kr = state._key_rects[current]
+    center_x = kr.x + kr.w / 2
+
+    current_row = -1
+    current_col = -1
+    for ri, row in enumerate(state._key_row_map):
+        if current in row:
+            current_row = ri
+            current_col = row.index(current)
+            break
+    if current_row < 0:
+        return False
+
+    if direction == 'LEFT':
+        row = state._key_row_map[current_row]
+        if current_col > 0:
+            state._nav_key_index = row[current_col - 1]
+            return True
+    elif direction == 'RIGHT':
+        row = state._key_row_map[current_row]
+        if current_col < len(row) - 1:
+            state._nav_key_index = row[current_col + 1]
+            return True
+    elif direction == 'UP':
+        if current_row < len(state._key_row_map) - 1:
+            target_row = state._key_row_map[current_row + 1]
+            best = min(target_row, key=lambda i: abs(state._key_rects[i].x + state._key_rects[i].w/2 - center_x))
+            state._nav_key_index = best
+            return True
+    elif direction == 'DOWN':
+        if current_row > 0:
+            target_row = state._key_row_map[current_row - 1]
+            best = min(target_row, key=lambda i: abs(state._key_rects[i].x + state._key_rects[i].w/2 - center_x))
+            state._nav_key_index = best
+            return True
+    return False
+
+
 def _handle_resize_drag(context, event):
     """Handle events during resize drag."""
     if event.type == 'MOUSEMOVE':
@@ -271,6 +318,21 @@ def _handle_idle(context, event):
             state._presets_hovered = new_presets_hover
             changed = True
 
+        # L4: Tooltip tracking
+        tooltip = ""
+        if new_export_hover:
+            tooltip = "Export keymap to file (see Addon Preferences for path)"
+        elif new_presets_hover:
+            tooltip = "Save/load keymap presets"
+        elif new_close_hover:
+            tooltip = "Close visualizer (Esc)"
+        if tooltip != state._tooltip_text:
+            state._tooltip_text = tooltip
+            state._tooltip_hover_start = time.monotonic()
+            changed = True
+        elif not tooltip:
+            state._tooltip_text = ""
+
         if changed:
             _tag_redraw()
         return {'RUNNING_MODAL'}
@@ -384,6 +446,88 @@ def _handle_idle(context, event):
         _update_search_filter()
         _tag_redraw()
         return {'RUNNING_MODAL'}
+
+    # C2: Keyboard navigation — arrow keys
+    if event.type in ('LEFT_ARROW', 'RIGHT_ARROW', 'UP_ARROW', 'DOWN_ARROW') and event.value == 'PRESS':
+        if not event.ctrl and not event.shift and not event.alt:
+            direction_map = {
+                'LEFT_ARROW': 'LEFT', 'RIGHT_ARROW': 'RIGHT',
+                'UP_ARROW': 'UP', 'DOWN_ARROW': 'DOWN',
+            }
+            if state._nav_focus == 'KEYS':
+                if _navigate_key(direction_map[event.type]):
+                    state._hovered_key_index = state._nav_key_index
+                    state._batch_dirty = True
+                    _tag_redraw()
+                return {'RUNNING_MODAL'}
+            elif state._nav_focus in ('EDITOR_LIST', 'MODE_LIST'):
+                if event.type in ('UP_ARROW', 'DOWN_ARROW'):
+                    delta = -1 if event.type == 'UP_ARROW' else 1
+                    if state._nav_focus == 'EDITOR_LIST':
+                        max_idx = len(state._filter_editor_list_rects) - 1
+                        state._filter_editor_hovered = max(0, min(max_idx, state._filter_editor_hovered + delta))
+                    else:
+                        max_idx = len(state._filter_mode_list_rects) - 1
+                        state._filter_mode_hovered = max(0, min(max_idx, state._filter_mode_hovered + delta))
+                    _tag_redraw()
+                return {'RUNNING_MODAL'}
+            elif state._nav_focus == 'INFO_PANEL':
+                if event.type in ('UP_ARROW', 'DOWN_ARROW'):
+                    info_line_h = max(10, int(_get_unit_px() * 0.28)) + 3
+                    delta = -info_line_h if event.type == 'UP_ARROW' else info_line_h
+                    state._info_panel_scroll = max(0, min(state._info_panel_max_scroll, state._info_panel_scroll + delta))
+                    _tag_redraw()
+                return {'RUNNING_MODAL'}
+
+    # C2: Tab to cycle panels
+    if event.type == 'TAB' and event.value == 'PRESS' and not event.ctrl and not event.alt:
+        panels = ['KEYS', 'EDITOR_LIST', 'MODE_LIST', 'INFO_PANEL']
+        idx = panels.index(state._nav_focus) if state._nav_focus in panels else 0
+        if event.shift:
+            idx = (idx - 1) % len(panels)
+        else:
+            idx = (idx + 1) % len(panels)
+        state._nav_focus = panels[idx]
+        if state._nav_focus == 'KEYS':
+            state._hovered_key_index = state._nav_key_index
+        elif state._nav_focus == 'EDITOR_LIST':
+            state._filter_editor_hovered = max(0, state._filter_editor_hovered)
+        elif state._nav_focus == 'MODE_LIST':
+            state._filter_mode_hovered = max(0, state._filter_mode_hovered)
+        state._batch_dirty = True
+        _tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    # C2: Enter to select/toggle in focused panel
+    if event.type == 'RET' and event.value == 'PRESS' and not event.ctrl:
+        if state._nav_focus == 'KEYS':
+            idx = state._nav_key_index
+            if 0 <= idx < len(state._key_rects):
+                kr = state._key_rects[idx]
+                if kr.event_type in MODIFIER_KEY_TO_DICT:
+                    dict_key = MODIFIER_KEY_TO_DICT[kr.event_type]
+                    state._active_modifiers[dict_key] = not state._active_modifiers[dict_key]
+                    state._invalidate_cache()
+                elif idx == state._selected_key_index:
+                    state._selected_key_index = -1
+                else:
+                    state._selected_key_index = idx
+                state._info_panel_scroll = 0
+                state._batch_dirty = True
+                _tag_redraw()
+            return {'RUNNING_MODAL'}
+        elif state._nav_focus == 'EDITOR_LIST':
+            hi = state._filter_editor_hovered
+            if 0 <= hi < len(state._filter_editor_list_rects):
+                item = state._filter_editor_list_rects[hi]
+                _toggle_filter_item(state._filter_space_types, item[1])
+            return {'RUNNING_MODAL'}
+        elif state._nav_focus == 'MODE_LIST':
+            hi = state._filter_mode_hovered
+            if 0 <= hi < len(state._filter_mode_list_rects):
+                item = state._filter_mode_list_rects[hi]
+                _toggle_filter_item(state._filter_modes, item[1])
+            return {'RUNNING_MODAL'}
 
     return None  # Not handled
 

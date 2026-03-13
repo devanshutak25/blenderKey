@@ -204,6 +204,23 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
         update=_invalidate,
     )
 
+    # --- Additional UI ---
+    col_active_highlight: FloatVectorProperty(
+        name="Active Highlight", subtype='COLOR', size=4,
+        min=0.0, max=1.0, default=(0.22, 0.28, 0.35, 1.0),
+        update=_invalidate,
+    )
+    col_text_inactive: FloatVectorProperty(
+        name="Inactive Text", subtype='COLOR', size=4,
+        min=0.0, max=1.0, default=(0.5, 0.5, 0.5, 0.6),
+        update=_invalidate,
+    )
+    col_badge_text: FloatVectorProperty(
+        name="Badge Text", subtype='COLOR', size=4,
+        min=0.0, max=1.0, default=(0.9, 0.9, 0.9, 0.85),
+        update=_invalidate,
+    )
+
     # --- Category colors ---
     enable_category_colors: BoolProperty(
         name="Category Colors",
@@ -373,6 +390,14 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
         row.prop(self, "col_conflict_header")
         row = box.row()
         row.prop(self, "col_shortcut_search_text")
+
+        # Additional UI
+        box = layout.box()
+        box.label(text="Additional UI")
+        row = box.row()
+        row.prop(self, "col_active_highlight")
+        row.prop(self, "col_text_inactive")
+        row.prop(self, "col_badge_text")
 
         # Category colors
         box = layout.box()

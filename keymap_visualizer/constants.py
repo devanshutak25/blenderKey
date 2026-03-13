@@ -149,7 +149,7 @@ NAV_ROW_ALIGNMENT = [0, 1, 3, 4, 5]
 # Numpad layout (rendered to the right of nav cluster)
 NUMPAD_ROWS = [
     # Row 0 (bottom, aligned with modifier/space row)
-    [("0", "NUMPAD_0", 2.0), (".", "NUMPAD_PERIOD", 1.0), ("Ent", "NUMPAD_ENTER", 1.0)],
+    [("0", "NUMPAD_0", 2.0), (".", "NUMPAD_PERIOD", 1.0), ("Enter", "NUMPAD_ENTER", 1.0)],
     # Row 1 (aligned with shift row)
     [("1", "NUMPAD_1", 1.0), ("2", "NUMPAD_2", 1.0), ("3", "NUMPAD_3", 1.0)],
     # Row 2 (aligned with home row)

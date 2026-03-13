@@ -136,6 +136,15 @@ _info_panel_scroll = 0              # scroll offset for info panel bindings
 _info_panel_rect = None             # (x, y, w, h) for hit testing
 _info_panel_max_scroll = 0          # set during drawing, read by handlers
 
+# Keyboard navigation (C2)
+_nav_focus = 'KEYS'  # 'KEYS', 'EDITOR_LIST', 'MODE_LIST', 'INFO_PANEL'
+_nav_key_index = 0   # keyboard-navigated key index (separate from mouse hover)
+_key_row_map = []    # list of lists: _key_row_map[row] = [key_index, ...]
+
+# Tooltips (L4)
+_tooltip_text = ""
+_tooltip_hover_start = 0.0  # time.monotonic() when hover began
+
 # Key modifier badge
 _key_modifier_badge_cache = {}   # {event_type: int} — count of additional modifier combos
 _key_modifier_badge_dirty = True
@@ -179,6 +188,8 @@ def _reset_all_state():
     global _info_panel_scroll, _info_panel_rect, _info_panel_max_scroll
     global _key_modifier_badge_cache, _key_modifier_badge_dirty
     global _launch_retry_count
+    global _nav_focus, _nav_key_index
+    global _tooltip_text, _tooltip_hover_start
 
     _draw_handle = None
     _target_area = None
@@ -261,6 +272,11 @@ def _reset_all_state():
     _info_panel_max_scroll = 0
     _key_modifier_badge_cache = {}
     _key_modifier_badge_dirty = True
+    _nav_focus = 'KEYS'
+    _nav_key_index = 0
+    _key_row_map.clear()
+    _tooltip_text = ""
+    _tooltip_hover_start = 0.0
 
 
 def _invalidate_cache():
