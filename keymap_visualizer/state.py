@@ -42,8 +42,15 @@ _conflict_button_rects = []  # list of (label, action, x, y, w, h)
 _conflict_hovered_button = -1
 
 # GPU-drawn context menu
-_gpu_menu_items = []  # list of (label, action, x, y, w, h)
+_gpu_menu_items = []  # list of (label, binding_index, x, y, w, h, is_active) — 7-tuple
 _gpu_menu_hovered = -1
+
+# Flyout sub-menu
+_gpu_flyout_items = []      # list of (label, action, x, y, w, h, binding_index)
+_gpu_flyout_hovered = -1
+_flyout_hover_timer = 0.0   # time.monotonic() when hover on main menu item started
+_flyout_target_index = -1   # which main menu item is showing its flyout
+_flyout_pending_index = -1  # which main menu item we're waiting to open flyout for
 
 # Phase 6: Export button
 _export_button_rect = None  # (x, y, w, h)
@@ -169,6 +176,7 @@ def _reset_all_state():
     global _hovered_key_index, _selected_key_index, _cached_region_size
     global _cached_bindings, _bindings_key, _cached_all_bindings, _all_bindings_key
     global _modal_state, _conflict_hovered_button, _gpu_menu_hovered
+    global _gpu_flyout_hovered, _flyout_hover_timer, _flyout_target_index, _flyout_pending_index
     global _export_button_rect, _export_hovered
     global _search_text, _search_active, _search_matching_keys, _search_last_update
     global _batch_dirty, _hover_transition, _hover_transition_target, _last_frame_time
@@ -218,6 +226,11 @@ def _reset_all_state():
     _conflict_hovered_button = -1
     _gpu_menu_items.clear()
     _gpu_menu_hovered = -1
+    _gpu_flyout_items.clear()
+    _gpu_flyout_hovered = -1
+    _flyout_hover_timer = 0.0
+    _flyout_target_index = -1
+    _flyout_pending_index = -1
     _export_button_rect = None
     _export_hovered = False
     _search_text = ''

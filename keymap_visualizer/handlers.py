@@ -6,7 +6,7 @@ import time
 from . import state
 from .hit_testing import (
     _hit_test_key, _hit_test_export,
-    _hit_test_conflict_buttons, _hit_test_gpu_menu,
+    _hit_test_conflict_buttons, _hit_test_gpu_menu, _hit_test_flyout,
     _hit_test_close, _hit_test_resize,
     _hit_test_editor_list, _hit_test_mode_list,
     _hit_test_presets_button, _hit_test_preset_dropdown,
@@ -18,7 +18,7 @@ from .keymap_data import (
     _push_undo, _do_undo, _do_redo,
 )
 from .export import _do_export
-from .drawing import _build_gpu_menu, _build_preset_dropdown
+from .drawing import _build_gpu_menu, _build_flyout, _build_preset_dropdown
 from .constants import _CAPTURABLE_KEYS, MODIFIER_KEY_TO_DICT
 
 
@@ -29,9 +29,12 @@ def _tag_redraw():
 
 
 def _dismiss_menu():
-    """Clear GPU menu state and redraw."""
+    """Clear GPU menu and flyout state and redraw."""
     state._gpu_menu_items.clear()
     state._gpu_menu_hovered = -1
+    state._gpu_flyout_items.clear()
+    state._gpu_flyout_hovered = -1
+    state._flyout_target_index = -1
     state._batch_dirty = True
     _tag_redraw()
 
@@ -545,66 +548,108 @@ def _handle_idle(context, event):
     return None  # Not handled
 
 
+def _dispatch_flyout_action(action, binding_index):
+    """Execute a flyout action for the given binding. Returns True if handled."""
+    all_bindings = state._menu_context.get('all_bindings', [])
+    if 0 <= binding_index < len(all_bindings):
+        km_name, op_id, mod_str, kmi, is_active = all_bindings[binding_index][:5]
+    else:
+        kmi = state._menu_context.get('target_kmi')
+        km_name = state._menu_context.get('target_km_name')
+
+    if action == 'REBIND' and kmi:
+        state._menu_context['target_kmi'] = kmi
+        state._menu_context['target_km_name'] = km_name
+        state._modal_state = 'CAPTURE'
+        state._menu_context['pending_action'] = 'REBIND'
+    elif action == 'UNBIND' and kmi:
+        _push_undo([kmi])
+        kmi.active = False
+        state._invalidate_cache()
+        state._modal_state = 'IDLE'
+    elif action == 'RESET' and kmi and km_name:
+        _push_undo([kmi])
+        _reset_kmi_to_default(kmi, km_name)
+        state._modal_state = 'IDLE'
+    elif action == 'TOGGLE' and kmi:
+        _push_undo([kmi])
+        kmi.active = not kmi.active
+        state._invalidate_cache()
+        state._modal_state = 'IDLE'
+    else:
+        state._modal_state = 'IDLE'
+    return True
+
+
 def _handle_menu_open(context, event):
-    """Handle events while GPU context menu is open."""
+    """Handle events while GPU context menu is open (with flyout sub-menus)."""
     if event.type == 'MOUSEMOVE':
-        new_hover = _hit_test_gpu_menu(event.mouse_region_x, event.mouse_region_y)
-        if new_hover != state._gpu_menu_hovered:
-            state._gpu_menu_hovered = new_hover
+        mx, my = event.mouse_region_x, event.mouse_region_y
+        changed = False
+
+        # Hit-test flyout first (it's on top)
+        flyout_hover = _hit_test_flyout(mx, my) if state._gpu_flyout_items else -1
+        if flyout_hover != state._gpu_flyout_hovered:
+            state._gpu_flyout_hovered = flyout_hover
+            changed = True
+
+        # Hit-test main menu
+        menu_hover = _hit_test_gpu_menu(mx, my)
+        if menu_hover != state._gpu_menu_hovered:
+            state._gpu_menu_hovered = menu_hover
+            changed = True
+
+        # Flyout logic: hover-based with ~200ms delay
+        if flyout_hover >= 0:
+            # Mouse is on flyout — keep it open, don't change target
+            pass
+        elif menu_hover >= 0:
+            if menu_hover != state._flyout_target_index:
+                # Hovering a different main item — start timer for new flyout
+                if state._flyout_hover_timer == 0.0 or menu_hover != getattr(state, '_flyout_pending_index', -1):
+                    state._flyout_hover_timer = time.monotonic()
+                    state._flyout_pending_index = menu_hover
+                # Check if delay has passed
+                if time.monotonic() - state._flyout_hover_timer >= 0.2:
+                    state._flyout_target_index = menu_hover
+                    _build_flyout(menu_hover)
+                    changed = True
+            # else: same target, keep flyout
+        else:
+            # Mouse not on menu or flyout — dismiss flyout
+            if state._gpu_flyout_items:
+                state._gpu_flyout_items.clear()
+                state._gpu_flyout_hovered = -1
+                state._flyout_target_index = -1
+                state._flyout_hover_timer = 0.0
+                changed = True
+
+        if changed:
             _tag_redraw()
         return {'RUNNING_MODAL'}
 
     if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
         mx, my = event.mouse_region_x, event.mouse_region_y
+
+        # Hit-test flyout first (it's on top)
+        flyout_hit = _hit_test_flyout(mx, my) if state._gpu_flyout_items else -1
+        if flyout_hit >= 0:
+            fitem = state._gpu_flyout_items[flyout_hit]
+            flabel, faction, fx, fy, fw, fh, fbind_idx = fitem
+            _dispatch_flyout_action(faction, fbind_idx)
+            _dismiss_menu()
+            return {'RUNNING_MODAL'}
+
+        # Hit-test main menu — click = instant flyout open
         menu_hit = _hit_test_gpu_menu(mx, my)
-
         if menu_hit >= 0:
-            item = state._gpu_menu_items[menu_hit]
-            if len(item) >= 8:
-                label, action, _, _, _, _, binding_index, is_header = item
-            else:
-                label, action = item[0], item[1]
-                binding_index = 0
-                is_header = False
+            state._flyout_target_index = menu_hit
+            _build_flyout(menu_hit)
+            _tag_redraw()
+            return {'RUNNING_MODAL'}
 
-            # Skip headers
-            if is_header:
-                return {'RUNNING_MODAL'}
-
-            # Feature 5: Look up kmi from the specific binding
-            all_bindings = state._menu_context.get('all_bindings', [])
-            if 0 <= binding_index < len(all_bindings):
-                km_name, op_id, mod_str, kmi, is_active = all_bindings[binding_index][:5]
-            else:
-                kmi = state._menu_context.get('target_kmi')
-                km_name = state._menu_context.get('target_km_name')
-
-            if action == 'REBIND' and kmi:
-                # Update target to the specific binding being rebound
-                state._menu_context['target_kmi'] = kmi
-                state._menu_context['target_km_name'] = km_name
-                state._modal_state = 'CAPTURE'
-                state._menu_context['pending_action'] = 'REBIND'
-            elif action == 'UNBIND' and kmi:
-                _push_undo([kmi])  # v0.9: undo support
-                kmi.active = False
-                state._invalidate_cache()
-                state._modal_state = 'IDLE'
-            elif action == 'RESET' and kmi and km_name:
-                _push_undo([kmi])  # v0.9: undo support
-                _reset_kmi_to_default(kmi, km_name)
-                state._modal_state = 'IDLE'
-            elif action == 'TOGGLE' and kmi:
-                _push_undo([kmi])  # v0.9: undo support
-                kmi.active = not kmi.active
-                state._invalidate_cache()
-                state._modal_state = 'IDLE'
-            else:
-                state._modal_state = 'IDLE'
-        else:
-            # Clicked outside menu — dismiss
-            state._modal_state = 'IDLE'
-
+        # Clicked outside — dismiss everything
+        state._modal_state = 'IDLE'
         _dismiss_menu()
         return {'RUNNING_MODAL'}
 
@@ -614,7 +659,6 @@ def _handle_menu_open(context, event):
         return {'RUNNING_MODAL'}
 
     if event.type == 'RIGHTMOUSE' and event.value == 'PRESS':
-        # Dismiss on right-click too
         state._modal_state = 'IDLE'
         _dismiss_menu()
         return {'RUNNING_MODAL'}

@@ -23,6 +23,7 @@ from .constants import (
     COL_GPU_MENU_BG, COL_GPU_MENU_HOVER, COL_GPU_MENU_BORDER,
     COL_KEY_BOUND, SPACE_TYPE_FILTERS, MODE_FILTERS,
     COL_SHORTCUT_SEARCH_TEXT, CATEGORY_COLORS,
+    OPERATOR_ABBREVIATIONS, OPERATOR_CATEGORIES,
 )
 
 # ---------------------------------------------------------------------------
@@ -390,73 +391,85 @@ def _get_filter_summary(filter_type):
             if value in state._filter_modes:
                 labels.append(label)
         return ", ".join(labels) if labels else "All Modes"
+def _get_category_for_op(op_id):
+    """Get category name for an operator id from OPERATOR_CATEGORIES."""
+    for prefix, cat in OPERATOR_CATEGORIES.items():
+        if op_id.startswith(prefix):
+            return cat
+    return "Other"
+
+
+def _build_humanized_label(op_id, mod_str):
+    """Build humanized label: '{mod_prefix}{abbrev} [{category}]'."""
+    # Get abbreviation
+    if op_id in OPERATOR_ABBREVIATIONS:
+        abbrev = OPERATOR_ABBREVIATIONS[op_id]
+    else:
+        abbrev = _humanize_op_id(op_id)
+
+    category = _get_category_for_op(op_id)
+
+    if mod_str:
+        return f"{mod_str} + {abbrev} [{category}]"
+    return f"{abbrev} [{category}]"
+
+
 def _build_gpu_menu(mx, my, region_width, region_height, bindings=None):
-    """Build GPU-drawn context menu items at mouse position."""
+    """Build GPU-drawn context menu items at mouse position.
+
+    Main menu shows humanized operator names. Flyout sub-menus show actions.
+    Menu item tuple: (label, binding_index, x, y, w, h, is_active) — 7-tuple.
+    """
     state._gpu_menu_items = []
     state._gpu_menu_hovered = -1
+    state._gpu_flyout_items.clear()
+    state._gpu_flyout_hovered = -1
+    state._flyout_target_index = -1
+    state._flyout_hover_timer = 0.0
 
     if bindings is None:
-        items = [
-            ("Rebind", "REBIND"),
-            ("Unbind", "UNBIND"),
-            ("Reset to Default", "RESET"),
-            ("Toggle Active", "TOGGLE"),
-        ]
-
-        item_w = 180
-        item_h = 28
-        padding = 4
-
-        menu_x = mx
-        menu_y = my - len(items) * (item_h + padding) - padding
-        if menu_x + item_w > region_width:
-            menu_x = region_width - item_w - 5
-        if menu_y < 5:
-            menu_y = my + 5
-
-        for i, (label, action) in enumerate(items):
-            iy = my - (i + 1) * (item_h + padding)
-            if menu_y > my:
-                iy = my + 5 + i * (item_h + padding)
-            state._gpu_menu_items.append((label, action, menu_x, iy, item_w, item_h, 0, False))
         return
 
-    # Feature 5: Enhanced multi-binding menu
-    item_w = 280
-    header_h = 28
-    action_h = 24
+    item_h = 28
     padding = 2
+    icon_size = int(item_h * 0.7)
+    sp5 = 5
 
-    menu_entries = []
+    # Build labels and measure widths
+    font_id = _ensure_font_loaded()
+    font_size = max(11, int(item_h * 0.45))
+    blf.size(font_id, font_size)
+
+    labels = []
     max_bindings = min(len(bindings), 5)
+    max_text_w = 0.0
     for bi in range(max_bindings):
         km_name, op_id, mod_str, kmi, is_active = bindings[bi][:5]
-        prefix = f"[{mod_str}] " if mod_str else ""
-        active_tag = "" if is_active else "[off] "
-        header_label = f"{active_tag}{prefix}{op_id}"
-        if len(header_label) > 40:
-            header_label = header_label[:37] + "\u2026"
-        header_label += f"  ({km_name})"
-        if len(header_label) > 50:
-            header_label = header_label[:47] + "\u2026"
-        menu_entries.append((header_label, "", bi, True, header_h))
-        menu_entries.append(("  Rebind", "REBIND", bi, False, action_h))
-        if is_active:
-            menu_entries.append(("  Unbind", "UNBIND", bi, False, action_h))
-        else:
-            menu_entries.append(("  Enable", "TOGGLE", bi, False, action_h))
-        menu_entries.append(("  Reset to Default", "RESET", bi, False, action_h))
-        menu_entries.append(("  Toggle On/Off", "TOGGLE", bi, False, action_h))
+        label = _build_humanized_label(op_id, mod_str)
+        tw, _ = blf.dimensions(font_id, label)
+        if tw > max_text_w:
+            max_text_w = tw
+        labels.append((label, bi, is_active))
 
-    if not menu_entries:
-        menu_entries.append(("No bindings for this key", "", -1, True, header_h))
+    if not labels:
+        return
 
-    total_h = sum(e[4] + padding for e in menu_entries) + padding
+    menu_width = int(icon_size + sp5 + max_text_w + sp5 * 2)
+    menu_width = max(menu_width, 120)  # minimum width
+    flyout_est_width = 160  # estimated flyout width for overflow check
 
+    total_h = len(labels) * (item_h + padding) + padding
+
+    # Position menu; shift left if flyout would overflow right edge
     menu_x = mx
+    if menu_x + menu_width + flyout_est_width > region_width:
+        menu_x = region_width - menu_width - flyout_est_width - 5
+    if menu_x < 5:
+        menu_x = 5
+    if menu_x + menu_width > region_width:
+        menu_x = region_width - menu_width - 5
+
     menu_y = my - total_h
-    if menu_x + item_w > region_width:
-        menu_x = region_width - item_w - 5
     if menu_y < 5:
         menu_y = my + 5
 
@@ -465,14 +478,64 @@ def _build_gpu_menu(mx, my, region_width, region_height, bindings=None):
     if not going_down:
         current_y = menu_y
 
-    for label, action, bi, is_header, ih in menu_entries:
+    for label, bi, is_active in labels:
         if going_down:
-            current_y -= (ih + padding)
+            current_y -= (item_h + padding)
             iy = current_y
         else:
             iy = current_y
-            current_y += ih + padding
-        state._gpu_menu_items.append((label, action, menu_x, iy, item_w, ih, bi, is_header))
+            current_y += item_h + padding
+        state._gpu_menu_items.append((label, bi, menu_x, iy, menu_width, item_h, is_active))
+
+
+def _build_flyout(main_item_index):
+    """Build flyout sub-menu for a main menu item."""
+    state._gpu_flyout_items.clear()
+    state._gpu_flyout_hovered = -1
+
+    if main_item_index < 0 or main_item_index >= len(state._gpu_menu_items):
+        return
+
+    main_item = state._gpu_menu_items[main_item_index]
+    label, binding_index, mx, my, mw, mh, is_active = main_item
+
+    all_bindings = state._menu_context.get('all_bindings', [])
+    if binding_index < 0 or binding_index >= len(all_bindings):
+        return
+
+    # Build action items
+    actions = [("Rebind", "REBIND")]
+    if is_active:
+        actions.append(("Unbind", "UNBIND"))
+    else:
+        actions.append(("Enable", "TOGGLE"))
+    actions.append(("Reset to Default", "RESET"))
+    actions.append(("Toggle On/Off", "TOGGLE"))
+
+    # Measure text widths
+    font_id = _ensure_font_loaded()
+    action_h = 26
+    padding = 2
+    sp5 = 5
+    font_size = max(10, int(action_h * 0.45))
+    blf.size(font_id, font_size)
+
+    max_tw = 0.0
+    for alabel, _ in actions:
+        tw, _ = blf.dimensions(font_id, alabel)
+        if tw > max_tw:
+            max_tw = tw
+
+    flyout_w = int(max_tw + sp5 * 4)
+    flyout_w = max(flyout_w, 120)
+
+    # Position to the right of main menu item, vertically aligned
+    flyout_x = mx + mw + 2
+    flyout_y = my + mh  # start from top of main item
+
+    for i, (alabel, aaction) in enumerate(actions):
+        iy = flyout_y - (i + 1) * (action_h + padding)
+        state._gpu_flyout_items.append((alabel, aaction, flyout_x, iy, flyout_w, action_h, binding_index))
 
 
 def _build_preset_dropdown(button_rect, region_width, region_height):
@@ -1504,56 +1567,77 @@ def _draw_callback():
                 blf.position(font_id, bx + (btn_w - tw) / 2, btn_y + (btn_h - th) / 2, 0)
                 blf.draw(font_id, blabel)
 
-        # --- J. GPU-drawn context menu (Phase 5 + Feature 5) ---
+        # --- J. GPU-drawn context menu (humanized + flyout) ---
         if state._modal_state == 'MENU_OPEN' and state._gpu_menu_items:
-            if state._gpu_menu_items:
-                all_x = [item[2] for item in state._gpu_menu_items]
-                all_y = [item[3] for item in state._gpu_menu_items]
-                all_y_max = [item[3] + item[5] for item in state._gpu_menu_items]
-                menu_bg_x = min(all_x) - sp2
-                menu_bg_y = min(all_y) - sp2
-                menu_bg_w = state._gpu_menu_items[0][4] + sp2 * 2
-                menu_bg_h = (max(all_y_max) - min(all_y)) + sp2 * 2
+            # Draw main menu background
+            all_x = [item[2] for item in state._gpu_menu_items]
+            all_y = [item[3] for item in state._gpu_menu_items]
+            all_y_max = [item[3] + item[5] for item in state._gpu_menu_items]
+            menu_bg_x = min(all_x) - sp2
+            menu_bg_y = min(all_y) - sp2
+            menu_bg_w = state._gpu_menu_items[0][4] + sp2 * 2
+            menu_bg_h = (max(all_y_max) - min(all_y)) + sp2 * 2
 
-                _draw_panel(shader_uniform, menu_bg_x, menu_bg_y, menu_bg_w, menu_bg_h,
+            _draw_panel(shader_uniform, menu_bg_x, menu_bg_y, menu_bg_w, menu_bg_h,
+                        colors['menu_bg'], colors['menu_border'])
+
+            # Draw main menu items (humanized operator names)
+            all_bindings = state._menu_context.get('all_bindings', [])
+            menu_font_size = max(10, int(info_font_size * 1.0))
+            for mi_idx, item in enumerate(state._gpu_menu_items):
+                mlabel, mbind_idx, mx, my, mw, mh, m_is_active = item
+
+                # Highlight: flyout target or hovered
+                is_flyout_target = (mi_idx == state._flyout_target_index)
+                is_hovered = (mi_idx == state._gpu_menu_hovered)
+                if is_flyout_target or is_hovered:
+                    mcol = colors['menu_hover']
+                else:
+                    mcol = colors['menu_bg']
+                _draw_rect(shader_uniform, mx, my, mw, mh, mcol)
+
+                # Draw editor icon
+                menu_icon_size = int(mh * 0.7)
+                menu_text_x = mx + sp5
+                if 0 <= mbind_idx < len(all_bindings) and len(all_bindings[mbind_idx]) > 5:
+                    menu_icon_tex = get_km_icon(all_bindings[mbind_idx][5])
+                    _draw_icon(menu_icon_tex, mx + sp3, my + (mh - menu_icon_size) / 2, menu_icon_size)
+                    if menu_icon_tex:
+                        menu_text_x = mx + menu_icon_size + sp5
+
+                # Draw label (dimmed if inactive)
+                blf.size(font_id, menu_font_size)
+                if m_is_active:
+                    blf.color(font_id, *colors['text'])
+                else:
+                    blf.color(font_id, *colors['text_dim'])
+                tw, th = blf.dimensions(font_id, mlabel)
+                blf.position(font_id, menu_text_x, my + (mh - th) / 2, 0)
+                blf.draw(font_id, mlabel)
+
+            # Draw flyout sub-menu if present
+            if state._gpu_flyout_items:
+                fly_all_x = [fi[2] for fi in state._gpu_flyout_items]
+                fly_all_y = [fi[3] for fi in state._gpu_flyout_items]
+                fly_all_y_max = [fi[3] + fi[5] for fi in state._gpu_flyout_items]
+                fly_bg_x = min(fly_all_x) - sp2
+                fly_bg_y = min(fly_all_y) - sp2
+                fly_bg_w = state._gpu_flyout_items[0][4] + sp2 * 2
+                fly_bg_h = (max(fly_all_y_max) - min(fly_all_y)) + sp2 * 2
+
+                _draw_panel(shader_uniform, fly_bg_x, fly_bg_y, fly_bg_w, fly_bg_h,
                             colors['menu_bg'], colors['menu_border'])
 
-            for mi_idx, item in enumerate(state._gpu_menu_items):
-                if len(item) >= 8:
-                    mlabel, maction, mx, my, mw, mh, mbind_idx, mis_header = item
-                else:
-                    mlabel, maction, mx, my, mw, mh = item[:6]
-                    mbind_idx, mis_header = 0, False
-
-                if mis_header:
-                    mcol = (colors['panel_bg'][0] * 0.8, colors['panel_bg'][1] * 0.8,
-                            colors['panel_bg'][2] * 0.8, colors['panel_bg'][3])
-                    _draw_rect(shader_uniform, mx, my, mw, mh, mcol)
-                    # Separator line above header for visual grouping
-                    _draw_rect(shader_uniform, mx + sp3, my + mh - 1, mw - sp3 * 2, 1, colors['border'])
-                    blf.size(font_id, max(info_font_size, int(info_font_size * 1.05)))
-                    blf.color(font_id, *colors['text'])
-                    # Draw editor icon before header text
-                    menu_icon_size = int(mh * 0.7)
-                    menu_text_x = mx + sp5
-                    all_bindings = state._menu_context.get('all_bindings', [])
-                    if 0 <= mbind_idx < len(all_bindings) and len(all_bindings[mbind_idx]) > 5:
-                        menu_icon_tex = get_km_icon(all_bindings[mbind_idx][5])
-                        _draw_icon(menu_icon_tex, mx + sp3, my + (mh - menu_icon_size) / 2, menu_icon_size)
-                        if menu_icon_tex:
-                            menu_text_x = mx + menu_icon_size + sp5
-                    tw, th = blf.dimensions(font_id, mlabel)
-                    blf.position(font_id, menu_text_x, my + (mh - th) / 2, 0)
-                    blf.draw(font_id, mlabel)
-                else:
-                    mcol = colors['menu_hover'] if mi_idx == state._gpu_menu_hovered else colors['menu_bg']
-                    _draw_rect(shader_uniform, mx, my, mw, mh, mcol)
-                    action_font_size = max(9, int(info_font_size * 0.9))
+                action_font_size = max(9, int(info_font_size * 0.9))
+                for fi_idx, fitem in enumerate(state._gpu_flyout_items):
+                    flabel, faction, fx, fy, fw, fh, fbind_idx = fitem
+                    fcol = colors['menu_hover'] if fi_idx == state._gpu_flyout_hovered else colors['menu_bg']
+                    _draw_rect(shader_uniform, fx, fy, fw, fh, fcol)
                     blf.size(font_id, action_font_size)
                     blf.color(font_id, *colors['text'])
-                    tw, th = blf.dimensions(font_id, mlabel)
-                    blf.position(font_id, mx + sp5 * 2, my + (mh - th) / 2, 0)
-                    blf.draw(font_id, mlabel)
+                    ftw, fth = blf.dimensions(font_id, flabel)
+                    blf.position(font_id, fx + sp5, fy + (fh - fth) / 2, 0)
+                    blf.draw(font_id, flabel)
 
         gpu.state.blend_set('NONE')
     except Exception:

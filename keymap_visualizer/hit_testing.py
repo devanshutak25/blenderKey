@@ -57,14 +57,18 @@ def _hit_test_conflict_buttons(mx, my):
 
 
 def _hit_test_gpu_menu(mx, my):
-    """Returns menu item index or -1. Skips header items (8-tuple with is_header=True)."""
+    """Returns menu item index or -1. Items are 7-tuples: (label, bind_idx, x, y, w, h, is_active)."""
     for i, item in enumerate(state._gpu_menu_items):
-        if len(item) >= 8:
-            label, action, x, y, w, h, binding_index, is_header = item
-            if is_header:
-                continue  # Headers are not clickable
-        else:
-            label, action, x, y, w, h = item[:6]
+        label, bind_idx, x, y, w, h, is_active = item
+        if x <= mx <= x + w and y <= my <= y + h:
+            return i
+    return -1
+
+
+def _hit_test_flyout(mx, my):
+    """Returns flyout item index or -1."""
+    for i, item in enumerate(state._gpu_flyout_items):
+        label, action, x, y, w, h, bind_idx = item
         if x <= mx <= x + w and y <= my <= y + h:
             return i
     return -1
