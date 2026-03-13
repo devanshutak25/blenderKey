@@ -2,7 +2,7 @@
 
 A visual keyboard-based keymap editor for Blender 4.2+. Browse, edit, rebind, search, and export your keybindings through a GPU-rendered keyboard overlay — no digging through the built-in preferences panel.
 
-![Blender](https://img.shields.io/badge/Blender-4.2%2B-orange) ![License](https://img.shields.io/badge/license-MIT-blue)
+![Blender](https://img.shields.io/badge/Blender-5.0%2B-orange) ![License](https://img.shields.io/badge/license-MIT-blue)
 
 <!-- Add a screenshot here: ![blenderKey screenshot](docs/screenshot.png) -->
 
