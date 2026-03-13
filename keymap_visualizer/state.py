@@ -127,9 +127,14 @@ _filter_editor_hovered = -1         # index of hovered item (-1 = none)
 _filter_mode_hovered = -1           # index of hovered item (-1 = none)
 _filter_editor_scroll = 0           # scroll offset (pixels) for overflow
 _filter_mode_scroll = 0
-_filter_scroll_drag_target = None    # 'EDITOR', 'MODE', or None
+_filter_scroll_drag_target = None    # 'EDITOR', 'MODE', 'INFO', or None
 _filter_scroll_drag_start_y = 0      # mouse Y when drag started
 _filter_scroll_drag_start_offset = 0.0  # scroll offset when drag started
+
+# Info panel scroll state
+_info_panel_scroll = 0              # scroll offset for info panel bindings
+_info_panel_rect = None             # (x, y, w, h) for hit testing
+_info_panel_max_scroll = 0          # set during drawing, read by handlers
 
 # Key modifier badge
 _key_modifier_badge_cache = {}   # {event_type: int} — count of additional modifier combos

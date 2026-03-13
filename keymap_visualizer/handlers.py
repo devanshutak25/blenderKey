@@ -127,6 +127,8 @@ def _handle_idle(context, event):
                 px, py, pw, ph = state._filter_editor_list_rect
                 max_scroll = max(0, total_h - ph)
                 state._filter_editor_scroll = max(0, min(max_scroll, new_scroll))
+            elif state._filter_scroll_drag_target == 'INFO':
+                state._info_panel_scroll = max(0, min(state._info_panel_max_scroll, new_scroll))
             else:
                 total_h = len(state._filter_mode_list_rects) * item_h + header_h
                 px, py, pw, ph = state._filter_mode_list_rect
@@ -164,12 +166,24 @@ def _handle_idle(context, event):
                     state._target_area.tag_redraw()
                 return {'RUNNING_MODAL'}
 
+        # Info panel scroll
+        if state._info_panel_rect is not None:
+            px, py, pw, ph = state._info_panel_rect
+            if px <= mx <= px + pw and py <= my <= py + ph:
+                info_line_h = max(10, int(_get_unit_px() * 0.28)) + 3
+                delta = -info_line_h if event.type == 'WHEELUPMOUSE' else info_line_h
+                state._info_panel_scroll = max(0, min(state._info_panel_max_scroll, state._info_panel_scroll + delta))
+                if state._target_area is not None:
+                    state._target_area.tag_redraw()
+                return {'RUNNING_MODAL'}
+
     # Middle-click drag start for list panels
     if event.type == 'MIDDLEMOUSE' and event.value == 'PRESS':
         mx, my = event.mouse_region_x, event.mouse_region_y
         for panel_rect, scroll_val, target_name in [
             (state._filter_editor_list_rect, state._filter_editor_scroll, 'EDITOR'),
             (state._filter_mode_list_rect, state._filter_mode_scroll, 'MODE'),
+            (state._info_panel_rect, state._info_panel_scroll, 'INFO'),
         ]:
             if panel_rect is None:
                 continue
@@ -309,6 +323,7 @@ def _handle_idle(context, event):
                 state._selected_key_index = -1
             else:
                 state._selected_key_index = key_hit
+            state._info_panel_scroll = 0  # Reset scroll on key change
             state._batch_dirty = True
             if state._target_area is not None:
                 state._target_area.tag_redraw()

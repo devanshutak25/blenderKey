@@ -205,6 +205,9 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
         state._filter_scroll_drag_target = None
         state._filter_scroll_drag_start_y = 0
         state._filter_scroll_drag_start_offset = 0.0
+        state._info_panel_scroll = 0
+        state._info_panel_rect = None
+        state._info_panel_max_scroll = 0
         state._key_modifier_badge_cache = {}
         state._key_modifier_badge_dirty = True
         # v0.9 Feature 1: Key labels cleanup
@@ -309,6 +312,9 @@ def _force_cleanup():
     state._filter_scroll_drag_target = None
     state._filter_scroll_drag_start_y = 0
     state._filter_scroll_drag_start_offset = 0.0
+    state._info_panel_scroll = 0
+    state._info_panel_rect = None
+    state._info_panel_max_scroll = 0
     state._key_modifier_badge_cache = {}
     state._key_modifier_badge_dirty = True
     state._key_labels_cache = {}

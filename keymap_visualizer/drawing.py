@@ -404,7 +404,7 @@ def _build_preset_dropdown(button_rect, region_width, region_height):
         state._preset_dropdown_rects.append((label, action, dropdown_x, iy, item_w, item_h))
 
 
-def _draw_filter_lists(shader_uniform, font_id, font_size, unit_px, colors):
+def _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_px, colors):
     """Draw the Editor and Mode filter list panels below the keyboard."""
     list_font_size = max(8, int(unit_px * 0.22))
 
@@ -472,20 +472,53 @@ def _draw_filter_lists(shader_uniform, font_id, font_size, unit_px, colors):
                 blf.position(font_id, text_x, actual_y + (dh - th) / 2, 0)
                 blf.draw(font_id, display)
 
-        # Scrollbar
+        # Scrollbar (Issue #4: wider, brighter)
         total_content_h = len(item_rects) * item_h + header_h
         if total_content_h > ph:
             max_scroll = total_content_h - ph
-            track_x = px + pw - 4
-            track_w = 3
+            track_w = 6
+            track_x = px + pw - track_w - 1
             track_y = py
             track_h = ph
-            _draw_rect(shader_uniform, track_x, track_y, track_w, track_h, (0.15, 0.15, 0.15, 0.5))
+            _draw_rect(shader_uniform, track_x, track_y, track_w, track_h, (0.25, 0.25, 0.25, 0.6))
             visible_ratio = ph / total_content_h
             thumb_h = max(15, track_h * visible_ratio)
             scroll_ratio = scroll_offset / max_scroll if max_scroll > 0 else 0
             thumb_y = track_y + track_h - thumb_h - scroll_ratio * (track_h - thumb_h)
-            _draw_rect(shader_uniform, track_x, thumb_y, track_w, thumb_h, (0.5, 0.5, 0.5, 0.7))
+            _draw_rect(shader_uniform, track_x, thumb_y, track_w, thumb_h, (0.7, 0.7, 0.7, 0.85))
+
+            # Fade gradients at edges (Issue #9)
+            fade_h = 15
+            if scroll_offset > 0:
+                # Top fade: panel_bg -> transparent (going downward from top)
+                top_fade_y = py + ph - header_h - fade_h
+                bg = colors['panel_bg']
+                bg_t = (bg[0], bg[1], bg[2], 0.0)
+                fade_verts = [
+                    (px, top_fade_y + fade_h), (px + pw - track_w - 2, top_fade_y + fade_h),
+                    (px + pw - track_w - 2, top_fade_y), (px, top_fade_y),
+                ]
+                fade_colors = [bg, bg, bg_t, bg_t]
+                fb = batch_for_shader(shader_smooth, 'TRIS',
+                    {"pos": fade_verts, "color": fade_colors},
+                    indices=[(0, 1, 2), (0, 2, 3)])
+                shader_smooth.bind()
+                fb.draw(shader_smooth)
+            if scroll_offset < max_scroll:
+                # Bottom fade: transparent -> panel_bg (going downward)
+                bot_fade_y = py
+                bg = colors['panel_bg']
+                bg_t = (bg[0], bg[1], bg[2], 0.0)
+                fade_verts = [
+                    (px, bot_fade_y + fade_h), (px + pw - track_w - 2, bot_fade_y + fade_h),
+                    (px + pw - track_w - 2, bot_fade_y), (px, bot_fade_y),
+                ]
+                fade_colors = [bg_t, bg_t, bg, bg]
+                fb = batch_for_shader(shader_smooth, 'TRIS',
+                    {"pos": fade_verts, "color": fade_colors},
+                    indices=[(0, 1, 2), (0, 2, 3)])
+                shader_smooth.bind()
+                fb.draw(shader_smooth)
 
 
 _draw_callback_count = 0
@@ -873,7 +906,7 @@ def _draw_callback():
             blf.draw(font_id, undo_text)
 
         # --- Feature 4: Editor/Mode filter list panels ---
-        _draw_filter_lists(shader_uniform, font_id, font_size, unit_px, colors)
+        _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_px, colors)
 
         # --- v0.9 Feature 6: Preset dropdown ---
         if state._preset_dropdown_open and state._preset_dropdown_rects:
@@ -915,11 +948,14 @@ def _draw_callback():
                 legend_x = max_x + pad - 5
                 legend_y = max_y - 5
 
-                # Draw from top-right, going down
+                # Draw from top-right, going down (Issue #6: clamp to min_y)
                 for cat_name in sorted(active_cats):
+                    legend_y -= swatch_size + swatch_gap
+                    if legend_y < min_y:
+                        break  # stop drawing legend entries that overlap keyboard
+
                     cat_key = _CAT_COLOR_KEYS.get(cat_name)
                     cat_col = colors.get(cat_key, colors['key_bound']) if cat_key else colors['key_bound']
-                    legend_y -= swatch_size + swatch_gap
 
                     # Color swatch
                     _draw_rect(shader_uniform, legend_x - swatch_size * 6 - swatch_size,
@@ -993,7 +1029,12 @@ def _draw_callback():
         info_h = unit_px * 4.0
         info_y = min_y - pad - info_h - 5
 
+        # Panel background + border (Issue #7)
         _draw_rect(shader_uniform, info_x, info_y, info_w, info_h, colors['panel_bg'])
+        _draw_rect_border(shader_uniform, info_x, info_y, info_w, info_h, colors['border'])
+
+        # Store rect for hit testing (Issue #3)
+        state._info_panel_rect = (info_x, info_y, info_w, info_h)
 
         active_idx = state._selected_key_index if state._selected_key_index >= 0 else state._hovered_key_index
         info_font_size = max(10, int(unit_px * 0.28))
@@ -1003,7 +1044,7 @@ def _draw_callback():
             kr = state._key_rects[active_idx]
             bindings, n_matching = _get_all_bindings_for_key(kr.event_type)
 
-            # Header: big key name + dim filter summary on same line
+            # Header: big key name + dim filter summary (Issue #5, #8)
             header_font_size = max(12, int(unit_px * 0.38))
             header_x = info_x + 10
             header_y = info_y + info_h - header_font_size - 5
@@ -1026,18 +1067,41 @@ def _draw_callback():
                 blf.position(font_id, header_x + tw_label + 10, header_y, 0)
                 blf.draw(font_id, filter_summary_text)
 
+            # Separator line below header (Issue #5, #8)
+            sep_y = header_y - 4
+            _draw_rect(shader_uniform, info_x + 5, sep_y, info_w - 10, 1, colors['border'])
+
             blf.size(font_id, info_font_size)
 
             if bindings:
+                # Single-column layout with scrolling (Issues #2, #3, #12)
                 line_h = info_font_size + 3
-                col_w = (info_w - 30) / 2
-                col_left_x = info_x + 15
-                col_right_x = info_x + 15 + col_w + 10
-                max_rows = max(1, int((info_h - header_font_size - 15) / line_h))
-                total_shown = min(len(bindings), max_rows * 2)
+                content_top = sep_y - 4
+                content_bottom = info_y + 5
+                visible_h = content_top - content_bottom
+                max_visible_rows = max(1, int(visible_h / line_h))
+                total_rows = len(bindings)
+                info_max_scroll = max(0, (total_rows * line_h) - visible_h)
+                state._info_panel_max_scroll = info_max_scroll
+                # Clamp scroll
+                state._info_panel_scroll = max(0, min(state._info_panel_scroll, info_max_scroll))
+                has_scrollbar = total_rows > max_visible_rows
+                scrollbar_w = 8 if has_scrollbar else 0
+                avail_text_w = info_w - 20 - scrollbar_w
 
                 bind_icon_size = int(info_font_size * 1.0)
-                for j in range(total_shown):
+                cx = info_x + 10
+
+                # Enable scissor/clip by only drawing visible rows
+                scroll_offset = state._info_panel_scroll
+                first_visible = max(0, int(scroll_offset / line_h))
+                last_visible = min(total_rows, first_visible + max_visible_rows + 2)
+
+                for j in range(first_visible, last_visible):
+                    ly = content_top - (j + 1) * line_h + scroll_offset
+                    if ly > content_top or ly + line_h < content_bottom:
+                        continue
+
                     km_name, op_id, mod_str, kmi, is_active = bindings[j][:5]
                     km_space_type = bindings[j][5] if len(bindings[j]) > 5 else ''
                     prefix = f"[{mod_str}] " if mod_str else ""
@@ -1052,38 +1116,87 @@ def _draw_callback():
                     else:
                         blf.color(font_id, *colors['text_dim'])
 
-                    col = j // max_rows
-                    row = j % max_rows
-                    cx = col_left_x if col == 0 else col_right_x
-                    ly = info_y + info_h - header_font_size - 5 - (row + 1) * line_h
-                    if ly < info_y + 5:
-                        break
+                    # Measure and truncate main text (Issue #1)
+                    tw_main, _ = blf.dimensions(font_id, line_text)
+                    display_text = line_text
+                    if tw_main > avail_text_w * 0.6:
+                        while tw_main > avail_text_w * 0.6 and len(display_text) > 3:
+                            display_text = display_text[:-4] + "..."
+                            tw_main, _ = blf.dimensions(font_id, display_text)
+
                     # Draw main text
                     blf.position(font_id, cx, ly, 0)
-                    blf.draw(font_id, line_text)
-                    tw_main, _ = blf.dimensions(font_id, line_text)
+                    blf.draw(font_id, display_text)
 
-                    # Draw separator + editor name (dim)
-                    separator = " | "
-                    blf.color(font_id, *colors['text_dim'])
-                    blf.position(font_id, cx + tw_main, ly, 0)
-                    blf.draw(font_id, separator + km_name)
-                    tw_sep, _ = blf.dimensions(font_id, separator + km_name)
-
-                    # Icon after editor name
+                    # Icon between main text and editor name (Issue #11)
+                    icon_x_pos = cx + tw_main + 3
                     bind_icon_tex = get_km_icon(km_space_type)
-                    icon_x = cx + tw_main + tw_sep + 3
-                    _draw_icon(bind_icon_tex, icon_x, ly - 1, bind_icon_size)
-                if len(bindings) > total_shown:
-                    blf.color(font_id, *colors['text_dim'])
-                    ly = info_y + 5
-                    blf.position(font_id, info_x + 15, ly, 0)
-                    blf.draw(font_id, f"... and {len(bindings) - total_shown} more")
+                    if bind_icon_tex:
+                        _draw_icon(bind_icon_tex, icon_x_pos, ly - 1, bind_icon_size)
+                        icon_x_pos += bind_icon_size + 2
+
+                    # Editor/keymap name suffix, truncated to fit (Issue #1)
+                    suffix = f" | {km_name}"
+                    remaining_w = avail_text_w - (icon_x_pos - cx)
+                    if remaining_w > 20:
+                        blf.color(font_id, *colors['text_dim'])
+                        tw_suf, _ = blf.dimensions(font_id, suffix)
+                        display_suf = suffix
+                        if tw_suf > remaining_w:
+                            while tw_suf > remaining_w and len(display_suf) > 5:
+                                display_suf = display_suf[:-4] + "..."
+                                tw_suf, _ = blf.dimensions(font_id, display_suf)
+                        blf.position(font_id, icon_x_pos, ly, 0)
+                        blf.draw(font_id, display_suf)
+
+                # Scrollbar (Issue #3)
+                if has_scrollbar:
+                    track_w = 6
+                    track_x = info_x + info_w - track_w - 3
+                    track_y = content_bottom
+                    track_h = visible_h
+                    _draw_rect(shader_uniform, track_x, track_y, track_w, track_h, (0.25, 0.25, 0.25, 0.6))
+                    visible_ratio = visible_h / (total_rows * line_h)
+                    thumb_h = max(15, track_h * visible_ratio)
+                    scroll_ratio = scroll_offset / info_max_scroll if info_max_scroll > 0 else 0
+                    thumb_y = track_y + track_h - thumb_h - scroll_ratio * (track_h - thumb_h)
+                    _draw_rect(shader_uniform, track_x, thumb_y, track_w, thumb_h, (0.7, 0.7, 0.7, 0.85))
+
+                    # Fade gradients (Issue #9)
+                    fade_h = 15
+                    if scroll_offset > 0:
+                        bg = colors['panel_bg']
+                        bg_t = (bg[0], bg[1], bg[2], 0.0)
+                        fade_verts = [
+                            (cx, content_top), (info_x + info_w - track_w - 4, content_top),
+                            (info_x + info_w - track_w - 4, content_top - fade_h), (cx, content_top - fade_h),
+                        ]
+                        fade_colors = [bg, bg, bg_t, bg_t]
+                        fb = batch_for_shader(shader_smooth, 'TRIS',
+                            {"pos": fade_verts, "color": fade_colors},
+                            indices=[(0, 1, 2), (0, 2, 3)])
+                        shader_smooth.bind()
+                        fb.draw(shader_smooth)
+                    if scroll_offset < info_max_scroll:
+                        bg = colors['panel_bg']
+                        bg_t = (bg[0], bg[1], bg[2], 0.0)
+                        fade_verts = [
+                            (cx, content_bottom + fade_h), (info_x + info_w - track_w - 4, content_bottom + fade_h),
+                            (info_x + info_w - track_w - 4, content_bottom), (cx, content_bottom),
+                        ]
+                        fade_colors = [bg_t, bg_t, bg, bg]
+                        fb = batch_for_shader(shader_smooth, 'TRIS',
+                            {"pos": fade_verts, "color": fade_colors},
+                            indices=[(0, 1, 2), (0, 2, 3)])
+                        shader_smooth.bind()
+                        fb.draw(shader_smooth)
             else:
+                state._info_panel_max_scroll = 0
                 blf.color(font_id, *colors['text_dim'])
                 blf.position(font_id, info_x + 15, info_y + info_h - 2 * info_font_size - 8, 0)
                 blf.draw(font_id, "No bindings found")
         else:
+            state._info_panel_max_scroll = 0
             blf.color(font_id, *colors['text_dim'])
             blf.position(font_id, info_x + 10, info_y + info_h / 2 - info_font_size / 2, 0)
             blf.draw(font_id, "Hover over a key to see its bindings  |  Right-click to edit  |  / to search  |  ? to find key")

@@ -9,12 +9,10 @@ from .constants import OPERATOR_ABBREVIATIONS, OPERATOR_CATEGORIES
 
 
 def _humanize_op_id(idname):
-    """'mesh.extrude_region_move' -> 'Mesh: Extrude Region Move'"""
+    """'mesh.extrude_region_move' -> 'Extrude Region Move' (drop category prefix)."""
     parts = idname.split('.')
     if len(parts) == 2:
-        category = parts[0].title()
-        name = parts[1].replace('_', ' ').title()
-        return f"{category}: {name}"
+        return parts[1].replace('_', ' ').title()
     return idname.replace('_', ' ').title()
 
 
