@@ -1,34 +1,66 @@
-# Keymap Visualizer for Blender
+# blenderKey
 
-A visual keyboard-based keymap editor for Blender 4.2+. Opens a dedicated window with a GPU-drawn keyboard that lets you browse, edit, rebind, and export your keybindings — all without touching the built-in preferences panel.
+A visual keyboard-based keymap editor for Blender 4.2+. Browse, edit, rebind, search, and export your keybindings through a GPU-rendered keyboard overlay — no digging through the built-in preferences panel.
 
 ![Blender](https://img.shields.io/badge/Blender-4.2%2B-orange) ![License](https://img.shields.io/badge/license-MIT-blue)
+
+<!-- Add a screenshot here: ![blenderKey screenshot](docs/screenshot.png) -->
 
 ---
 
 ## Features
 
-- **Full QWERTY keyboard** rendered with GPU, including nav cluster and function keys
-- **Hover & click** any key to see all its bindings in the info panel
-- **Modifier toggles** (Ctrl, Shift, Alt, OS) filter bindings by modifier combination
-- **Right-click context menu** to Rebind, Unbind, Reset to Default, or Toggle Active
-- **Rebind capture** — press any key to reassign a binding
-- **Conflict resolution** — Swap, Override, or Cancel when a rebind conflicts with existing bindings
-- **Export** your keymap as a Blender-importable Python script
-- **Search/filter** — press `/` or `Ctrl+F` to search operators by name; non-matching keys dim out
-- **Custom colors** — pick your own key, background, and text colors in addon preferences
-- **Drop shadows & hover transitions** for visual polish
+### Visual Keyboard
+- GPU-rendered keyboard with drop shadows, hover transitions, and smooth animations
+- **6 form factors**: 100%, 96%, 80% (TKL), 75%, 65%, 60%
+- **2 physical layouts**: ANSI and ISO
+- **6 logical layouts**: QWERTY, AZERTY, QWERTZ, Dvorak, Colemak, Nordic
+- Auto-detects your OS keyboard layout on launch
+
+### Keymap Browsing
+- Hover or click any key to inspect all its bindings in the info panel
+- Modifier toggles (Ctrl, Shift, Alt, OS) filter bindings by combination
+- Editor and mode filters to scope bindings to specific contexts
+- Keyboard navigation between keys
+
+### Editing
+- Right-click context menu: Rebind, Unbind, Reset to Default, Toggle Active
+- Rebind capture mode — press any key combo to reassign a binding
+- Conflict resolution: Swap, Override, or Cancel
+- Undo / Redo for all keymap changes (up to 50 levels)
+
+### Search
+- Operator search (`/` or `Ctrl+F`) — filter keys by operator name
+- Shortcut reverse-lookup — find which key an operator is bound to
+
+### Operator Browser
+- Categorized, filterable list of all Blender operators
+- Assign new bindings directly from the browser
+
+### Theming
+- 8 base color tokens for key states, backgrounds, and text
+- 13 category colors for visual grouping by operator type
+- Advanced per-element overrides in addon preferences
+- WCAG-aware contrast defaults
+
+### Presets
+- Save, load, and delete named keymap presets
+- Quick switching between preset configurations
+
+### Export
+- Export keybindings as a Blender-importable Python script
+- Scope: modified-only (default) or full keyconfig dump
 
 ---
 
 ## Installation
 
 1. Download or clone this repository
-2. In Blender, go to **Edit > Preferences > Add-ons**
-3. Click **Install...** and navigate to the `keymap_visualizer` folder (select the folder itself, or zip it first and select the `.zip`)
+2. In Blender: **Edit > Preferences > Add-ons**
+3. Click **Install...** and select the `keymap_visualizer` folder (or zip it first)
 4. Enable **Keymap Visualizer** in the addon list
 
-Alternatively, copy the `keymap_visualizer` folder directly into your Blender addons directory:
+Or copy the `keymap_visualizer` folder directly into your addons directory:
 
 ```
 # Windows
@@ -45,98 +77,41 @@ Alternatively, copy the `keymap_visualizer` folder directly into your Blender ad
 
 ## Usage
 
-### Opening the Visualizer
+Open the visualizer from **Edit > Keymap Visualizer** in the top menu bar. A new window opens with the keyboard overlay.
 
-Click the **Keymap Viz** button in the 3D Viewport header bar. A new window opens with the keyboard overlay.
-
-### Browsing Bindings
-
-| Action | What it does |
-|--------|-------------|
-| **Hover** over a key | Shows all bindings for that key in the bottom info panel |
-| **Left-click** a key | Selects and locks the info panel to that key |
-| **Click modifier toggles** (Ctrl/Shift/Alt/OS) | Filters bindings to only show those matching the active modifiers |
-
-### Editing Bindings
-
-**Right-click** any key with bindings to open the context menu:
-
-| Menu Item | What it does |
-|-----------|-------------|
-| **Rebind** | Enters capture mode — press a new key (with optional modifiers held) to reassign the binding |
-| **Unbind** | Deactivates the binding (sets `kmi.active = False`) |
-| **Reset to Default** | Restores the binding to Blender's default key and modifiers |
-| **Toggle Active** | Flips the binding between active and inactive |
-
-### Rebinding a Key
-
-1. Right-click a key > **Rebind**
-2. The screen dims and shows "Press new key combination..."
-3. Press the new key (hold Ctrl/Shift/Alt/OS for modifier combos)
-4. If no conflict: the binding is reassigned immediately
-5. If conflict detected: a resolution overlay appears with three options:
-   - **Swap** — exchanges the key assignments between the two bindings
-   - **Override** — deactivates the conflicting binding and applies the new one
-   - **Cancel** — discards the change
-6. Press **ESC** at any time to cancel
-
-### Searching
-
-Press `/` or `Ctrl+F` to activate the search bar. Type an operator name (e.g., `transform`, `mesh.extrude`) to filter — keys without matching bindings dim out. Press **ESC** to clear, **Enter** to confirm and keep the filter active.
-
-### Exporting
-
-Click the **Export** button (to the right of modifier toggles) to save your keybindings as a Python script. Configure the export path and scope in addon preferences:
-
-- **Modified Only** (default) — exports only bindings that differ from Blender's defaults
-- **All** — full keyconfig dump
-
-The exported file can be imported back via **Edit > Preferences > Keymap > Import**.
-
-### Closing
-
-Press **ESC** (when not in capture/search mode) or close the window normally.
+- **Hover** a key to preview its bindings
+- **Left-click** to lock the info panel to that key
+- **Right-click** to rebind, unbind, or reset a binding
+- **Toggle modifiers** (Ctrl/Shift/Alt/OS) to filter by modifier combo
+- Press `/` or `Ctrl+F` to search operators
+- Use **Undo** (`Ctrl+Z`) and **Redo** (`Ctrl+Shift+Z`) to revert changes
 
 ---
 
-## Addon Preferences
-
-Go to **Edit > Preferences > Add-ons > Keymap Visualizer** to configure:
-
-### Export Settings
-- **Export Path** — where the exported `.py` file is saved (supports `//` for blend-relative paths)
-- **Export Scope** — Modified Only or All
-
-### Color Scheme
-Customize these colors with the built-in color pickers (changes apply live):
-- Key Unbound
-- Key Selected
-- Key Hovered
-- Background
-- Text
-- Panel Background
-
----
-
-## Keyboard Shortcuts (inside the visualizer)
+## Keyboard Shortcuts
 
 | Key | Action |
 |-----|--------|
-| `ESC` | Close visualizer / Cancel current action |
+| `ESC` | Close visualizer / cancel current action |
 | `/` or `Ctrl+F` | Open search bar |
-| `ESC` (in search) | Clear search and close search bar |
+| `Ctrl+Z` | Undo last keymap change |
+| `Ctrl+Shift+Z` | Redo |
 | `Enter` (in search) | Confirm search filter |
-| Left-click | Select key / Click buttons |
+| `ESC` (in search) | Clear and close search bar |
+| Left-click | Select key / click UI elements |
 | Right-click | Open context menu on a key |
 
 ---
 
-## Notes
+## Configuration
 
-- **Changes are permanent** — keymap edits modify `wm.keyconfigs.user` directly and persist in your Blender user preferences. There is no undo (`Ctrl+Z` will not revert binding changes). Use **Reset to Default** from the context menu to restore individual bindings.
-- **QWERTY ANSI layout only** — the keyboard layout is hardcoded to standard US ANSI QWERTY. Other layouts (ISO, AZERTY, etc.) are not currently supported.
-- **Single instance** — only one visualizer window can be open at a time.
-- Tested on Blender 4.2+ and 5.0.
+Go to **Edit > Preferences > Add-ons > Keymap Visualizer** to configure:
+
+- **Keyboard**: form factor, physical layout (ANSI/ISO), logical layout
+- **Export**: output path, scope (modified-only or all)
+- **Theme**: 8 base color tokens + 13 category colors with color pickers
+- **Category colors**: toggle color-coding by operator category
+- **Advanced overrides**: fine-tune individual UI element colors
 
 ---
 
@@ -144,10 +119,30 @@ Customize these colors with the built-in color pickers (changes apply live):
 
 ```
 keymap_visualizer/
-  __init__.py    # Everything — layout, rendering, editing, export, preferences
+  __init__.py       # Addon registration and bl_info
+  constants.py      # Enums, color tokens, layout constants
+  drawing.py        # GPU rendering (keys, panels, overlays)
+  export.py         # Python keymap script export
+  handlers.py       # Event handling and input dispatch
+  hit_testing.py    # Mouse-to-key hit detection
+  icons.py          # Icon loading and management
+  keyboards.py      # Physical/logical keyboard definitions
+  keymap_data.py    # Keymap introspection and diffing
+  layout.py         # Key position/size calculations
+  operators.py      # Blender operators (modal, launch)
+  preferences.py    # Addon preferences and theme settings
+  presets.py        # Preset save/load/delete
+  state.py          # Runtime state, undo/redo, selections
 ```
 
-Single-file addon for simplicity. All logic is in `__init__.py` (~1900 lines).
+---
+
+## Contributing
+
+1. Fork the repo and create a feature branch
+2. Keep changes focused — one feature or fix per PR
+3. Test in Blender 4.2+ before submitting
+4. Open a pull request with a clear description of what changed and why
 
 ---
 

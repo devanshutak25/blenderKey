@@ -76,7 +76,11 @@
       "Bash(cd \"G:\\\\Personal\\\\blenderKey\" && python -c \"import ast; ast.parse\\(open\\('keymap_visualizer/constants.py'\\).read\\(\\)\\); print\\('constants.py OK'\\)\" && python -c \"import ast; ast.parse\\(open\\('keymap_visualizer/state.py'\\).read\\(\\)\\); print\\('state.py OK'\\)\" && python -c \"import ast; ast.parse\\(open\\('keymap_visualizer/layout.py'\\).read\\(\\)\\); print\\('layout.py OK'\\)\" && python -c \"import ast; ast.parse\\(open\\('keymap_visualizer/preferences.py'\\).read\\(\\)\\); print\\('preferences.py OK'\\)\" && python -c \"import ast; ast.parse\\(open\\('keymap_visualizer/drawing.py'\\).read\\(\\)\\); print\\('drawing.py OK'\\)\" && python -c \"import ast; ast.parse\\(open\\('keymap_visualizer/handlers.py'\\).read\\(\\)\\); print\\('handlers.py OK'\\)\")",
       "Read(//g/Personal/blenderKey/**)",
       "Bash(bash /tmp/verify_audit.sh)",
-      "Bash(bash /tmp/verify_features.sh)"
+      "Bash(bash /tmp/verify_features.sh)",
+      "Bash(grep -rn \"\\\\.py\\\\|\\\\.blend\\\\|\\\\.exe\\\\|hardcoded\\\\|TODO\\\\|FIXME\\\\|HACK\" G:/Personal/blenderKey/keymap_visualizer/*.py 2>/dev/null | grep -i \"path\\\\|export\\\\|save\\\\|file\" | head -20)",
+      "Bash(wc -l G:/Personal/blenderKey/keymap_visualizer/*.py)",
+      "Bash(ls *.py)",
+      "Bash(cd G:/Personal/blenderKey && wc -l keymap_visualizer/*.py | tail -1)"
     ]
   }
 }

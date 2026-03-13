@@ -5,3 +5,11 @@ __pycache__/
 *.blend2
 .DS_Store
 Thumbs.db
+
+# Dev artifacts
+.claude/
+exports/
+*.zip
+ref/
+blender_icons_svg/
+blender_keymap_visualizer_plan.md
