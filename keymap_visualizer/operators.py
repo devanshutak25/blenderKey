@@ -21,6 +21,7 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
 
     def invoke(self, context, event):
         self._target_window = context.window
+        state._target_window = context.window
         state._target_area = context.area
 
         # Compute initial layout
@@ -42,6 +43,10 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
         context.window_manager.modal_handler_add(self)
         context.area.tag_redraw()
         print(f"[Keymap Visualizer] invoke: modal started, key_rects={len(state._key_rects)}")
+
+        # Register watchdog timer to detect window close
+        bpy.app.timers.register(_watchdog_timer, first_interval=0.5, persistent=True)
+
         return {'RUNNING_MODAL'}
 
     def modal(self, context, event):
@@ -175,6 +180,7 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
         state._hover_transition_target = -1
         state._last_frame_time = 0.0
         state._launch_window = None
+        state._target_window = None
         # Feature 1: Close button cleanup
         state._close_button_rect = None
         state._close_hovered = False
@@ -237,6 +243,113 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
                         area.tag_redraw()
         except Exception:
             pass
+
+
+def _force_cleanup():
+    """Force cleanup when the visualizer window is closed externally."""
+    print("[Keymap Visualizer] Watchdog: window closed, forcing cleanup")
+    if state._draw_handle is not None:
+        try:
+            bpy.types.SpaceTextEditor.draw_handler_remove(state._draw_handle, 'WINDOW')
+        except Exception:
+            pass
+    state._draw_handle = None
+    state._target_area = None
+    state._target_window = None
+    state._hovered_key_index = -1
+    state._selected_key_index = -1
+    state._key_rects = []
+    state._cached_region_size = (0, 0)
+    state._modifier_rects = []
+    state._active_modifiers = {'ctrl': False, 'shift': False, 'alt': False, 'oskey': False}
+    state._cached_bindings = []
+    state._bindings_key = None
+    state._cached_all_bindings = ([], 0)
+    state._all_bindings_key = None
+    state._modal_state = 'IDLE'
+    state._menu_context.clear()
+    state._conflict_data['conflicts'] = []
+    state._conflict_button_rects.clear()
+    state._conflict_hovered_button = -1
+    state._gpu_menu_items.clear()
+    state._gpu_menu_hovered = -1
+    state._export_button_rect = None
+    state._export_hovered = False
+    state._search_text = ''
+    state._search_active = False
+    state._search_matching_keys = set()
+    state._batch_dirty = True
+    state._hover_transition = 0.0
+    state._hover_transition_target = -1
+    state._last_frame_time = 0.0
+    state._launch_window = None
+    state._close_button_rect = None
+    state._close_hovered = False
+    state._should_close = False
+    state._user_scale = 1.0
+    state._resize_handle_rect = None
+    state._resize_hovered = False
+    state._resize_dragging = False
+    state._bound_keys_cache = set()
+    state._bound_keys_dirty = True
+    state._filter_space_type = 'ALL'
+    state._filter_mode = 'ALL'
+    state._filter_editor_btn_rect = None
+    state._filter_mode_btn_rect = None
+    state._filter_editor_hovered = False
+    state._filter_mode_hovered = False
+    state._filter_dropdown_open = None
+    state._filter_dropdown_rects = []
+    state._filter_dropdown_hovered = -1
+    state._key_labels_cache = {}
+    state._key_labels_dirty = True
+    state._physical_modifiers = {'ctrl': False, 'shift': False, 'alt': False, 'oskey': False}
+    state._modifier_source = 'TOGGLE'
+    state._key_categories_cache = {}
+    state._key_categories_dirty = True
+    state._undo_stack.clear()
+    state._redo_stack.clear()
+    state._shortcut_search_active = False
+    state._key_editor_icons_cache = {}
+    state._key_editor_icons_dirty = True
+    try:
+        from .icons import cleanup_icons
+        cleanup_icons()
+    except Exception:
+        pass
+    state._presets_list = []
+    state._active_preset_name = ""
+    state._presets_btn_rect = None
+    state._presets_hovered = False
+    state._preset_dropdown_open = False
+    state._preset_dropdown_rects = []
+    state._preset_dropdown_hovered = -1
+    state._preset_name_input_active = False
+    state._preset_name_text = ""
+    state._set_running(False)
+    # Redraw text editors to clear stale overlay
+    try:
+        for window in bpy.context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type == 'TEXT_EDITOR':
+                    area.tag_redraw()
+    except Exception:
+        pass
+
+
+def _watchdog_timer():
+    """Periodic check: if the visualizer window was closed, force cleanup."""
+    if not state._visualizer_running:
+        return None  # Stop timer
+    try:
+        wm = bpy.context.window_manager
+        if state._target_window not in wm.windows[:]:
+            _force_cleanup()
+            return None
+    except Exception:
+        _force_cleanup()
+        return None
+    return 0.5  # Check again in 0.5s
 
 
 def _deferred_start_modal():

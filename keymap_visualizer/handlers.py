@@ -204,12 +204,14 @@ def _handle_idle(context, event):
                 if state._target_area is not None:
                     state._target_area.tag_redraw()
                 return {'RUNNING_MODAL'}
-            # Normal key selection
-            if key_hit != state._selected_key_index:
+            # Normal key selection (toggle on re-click)
+            if key_hit == state._selected_key_index:
+                state._selected_key_index = -1
+            else:
                 state._selected_key_index = key_hit
-                state._batch_dirty = True
-                if state._target_area is not None:
-                    state._target_area.tag_redraw()
+            state._batch_dirty = True
+            if state._target_area is not None:
+                state._target_area.tag_redraw()
         return {'RUNNING_MODAL'}
 
     # Right-click: context menu (Feature 5: enhanced with all bindings)

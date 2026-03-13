@@ -132,6 +132,9 @@ _filter_dropdown_hovered = -1
 _launch_window = None
 _launch_retry_count = 0
 
+# Watchdog: track the visualizer window for close detection
+_target_window = None
+
 
 def _invalidate_cache():
     """Invalidate binding cache and mark batches dirty."""
