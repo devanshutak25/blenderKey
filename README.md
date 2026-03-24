@@ -1,6 +1,6 @@
 # blenderKey
 
-A visual keyboard-based keymap editor for Blender 5.0+. Browse, edit, rebind, search, and export your keybindings through a GPU-rendered keyboard overlay — no digging through the built-in preferences panel.
+A visual keyboard-based keymap editor for Blender 5.0+. Browse, edit, rebind, search, and export your keybindings through a GPU-rendered keyboard overlay — no digging through the built-in preferences panel. *Completely vibecoded using Claude Code.*
 
 ![Blender](https://img.shields.io/badge/Blender-5.0%2B-orange) ![License](https://img.shields.io/badge/license-MIT-blue)
 
