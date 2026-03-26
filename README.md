@@ -143,9 +143,3 @@ keymap_visualizer/
 2. Keep changes focused — one feature or fix per PR
 3. Test in Blender 5.0+ before submitting
 4. Open a pull request with a clear description of what changed and why
-
----
-
-## License
-
-MIT
