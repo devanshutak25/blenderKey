@@ -14,6 +14,7 @@ from gpu_extras.batch import batch_for_shader
 
 from . import state
 from .state import DirtyFlag
+from .profiler import prof
 
 _log = logging.getLogger("keymap_visualizer.drawing")
 from dataclasses import dataclass
@@ -440,17 +441,31 @@ def _contrasting_text_color(bg_color, light=(1.0, 1.0, 1.0, 1.0), dark=(0.05, 0.
     return dark if _luminance(bg_color) > 0.35 else light
 
 
+_shader_image = None
+
+
+def _get_shader_image():
+    global _shader_image
+    if _shader_image is None:
+        _shader_image = gpu.shader.from_builtin('IMAGE')
+    return _shader_image
+
+
+# Pre-built icon geometry (same for all icons, just different position/size)
+_icon_texcoords = ((0, 0), (1, 0), (1, 1), (0, 1))
+_icon_indices = ((0, 1, 2), (0, 2, 3))
+
+
 def _draw_icon(texture, x, y, size):
     """Draw an icon texture at (x, y) with given size."""
     if texture is None:
         return
     try:
-        shader = gpu.shader.from_builtin('IMAGE')
+        shader = _get_shader_image()
         coords = ((x, y), (x + size, y), (x + size, y + size), (x, y + size))
-        texcoords = ((0, 0), (1, 0), (1, 1), (0, 1))
-        indices = ((0, 1, 2), (0, 2, 3))
-        batch = batch_for_shader(shader, 'TRIS', {"pos": coords, "texCoord": texcoords}, indices=indices)
-        gpu.state.blend_set('ALPHA')
+        batch = batch_for_shader(shader, 'TRIS',
+                                 {"pos": coords, "texCoord": _icon_texcoords},
+                                 indices=_icon_indices)
         shader.bind()
         shader.uniform_sampler("image", texture)
         batch.draw(shader)
@@ -831,7 +846,6 @@ def _build_preset_dropdown(button_rect, region_width, region_height):
 def _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_px, colors, s=None):
     """Draw the Editor and Mode filter list panels below the keyboard."""
     list_font_size = max(10, int(unit_px * 0.22))
-    # Use centralized spacing
     if s is None:
         s = _compute_spacing(unit_px)
     sp1 = s.sp1
@@ -849,15 +863,12 @@ def _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_p
             continue
         px, py, pw, ph = panel_rect
         scroll_offset = state._filter_editor_scroll if is_editor else state._filter_mode_scroll
-        # Panel background (softened border for filter panels)
         soft_border = (colors['border'][0], colors['border'][1], colors['border'][2], colors['border'][3] * 0.5)
         _draw_panel(shader_uniform, px, py, pw, ph, colors['panel_bg'], soft_border)
 
-        # C2: Focus indicator for list panels
         if (is_editor and state._nav_focus == 'EDITOR_LIST') or (not is_editor and state._nav_focus == 'MODE_LIST'):
             _draw_rect_border(shader_uniform, px, py, pw, ph, colors['border_highlight'])
 
-        # Header
         header_h = max(16, unit_px * 0.35)
         if unit_px >= 20:
             blf.size(font_id, list_font_size)
@@ -866,7 +877,6 @@ def _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_p
             blf.position(font_id, px + (pw - tw) / 2, py + ph - list_font_size - sp2, 0)
             blf.draw(font_id, header_text)
 
-        # M4: Empty state
         if not item_rects:
             blf.size(font_id, list_font_size)
             blf.color(font_id, *colors['text_dim'])
@@ -876,14 +886,14 @@ def _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_p
             blf.draw(font_id, no_items)
             continue
 
-        # Scissor clip only the scrollable content area (below header)
         content_top_y = py + ph - header_h
         with _scissor_clip(px, py, pw, int(content_top_y - py)):
-            # Items (apply scroll offset)
             item_h = max(20, unit_px * 0.5)
+            # Set font size ONCE before item loop
+            if unit_px >= 20:
+                blf.size(font_id, list_font_size)
             for di, (dlabel, dvalue, dx, dy, dw, dh) in enumerate(item_rects):
                 actual_y = dy + scroll_offset
-                # Clip: skip items outside panel bounds (below header, above bottom)
                 if actual_y + dh <= py or actual_y >= py + ph - header_h:
                     continue
 
@@ -899,9 +909,7 @@ def _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_p
                 _draw_rect(shader_uniform, dx, actual_y, dw, dh, dcol)
 
                 if unit_px >= 20:
-                    blf.size(font_id, list_font_size)
                     blf.color(font_id, *colors['text'])
-                    # Draw icon
                     if is_editor:
                         icon_tex = get_editor_icon(dvalue)
                     else:
@@ -916,7 +924,6 @@ def _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_p
                     blf.position(font_id, text_x, actual_y + (dh - th) / 2, 0)
                     blf.draw(font_id, display)
 
-            # Scrollbar (Issue #4: wider, brighter)
             total_content_h = len(item_rects) * item_h + header_h
             if total_content_h > ph:
                 max_scroll = total_content_h - ph
@@ -926,7 +933,6 @@ def _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_p
                                 track_w=track_w, track_color=_lerp_color(colors['panel_bg'], colors['border'], 0.3),
                                 thumb_color=colors['text_dim'])
 
-                # Fade gradients at edges (Issue #9)
                 fade_h = sp6
                 fade_x2 = px + pw - track_w - sp2
                 if scroll_offset > 0:
@@ -1022,7 +1028,8 @@ def _draw_operator_list(shader_uniform, shader_smooth, font_id, font_size, unit_
     search_query = state._operator_list_search_text.lower()
     scroll_offset = state._operator_list_scroll
 
-    # Pre-compute total content height for scrollbar
+    # Pre-filter operators once for both height calculation and rendering
+    filtered_cats = []
     total_h = 0
     for category in OPERATOR_CATEGORY_ORDER:
         ops = state._operator_list_categories.get(category, [])
@@ -1030,42 +1037,33 @@ def _draw_operator_list(shader_uniform, shader_smooth, font_id, font_size, unit_
             ops = [(oid, name) for oid, name in ops if search_query in name.lower() or search_query in oid.lower()]
         if not ops:
             continue
-        total_h += group_h  # category header
-        if category in state._operator_list_expanded or (search_query and ops):
-            expanded = category in state._operator_list_expanded
-            if search_query or expanded:
-                total_h += len(ops) * item_h
+        is_expanded = category in state._operator_list_expanded or bool(search_query)
+        filtered_cats.append((category, ops, is_expanded))
+        total_h += group_h
+        if is_expanded:
+            total_h += len(ops) * item_h
 
     max_scroll = max(0, total_h - content_h)
     state._operator_list_max_scroll = max_scroll
     state._operator_list_scroll = max(0, min(state._operator_list_scroll, max_scroll))
     scroll_offset = state._operator_list_scroll
 
+    # Pre-compute item font size once
+    item_font_size = max(9, int(unit_px * 0.18))
+    dot_size = max(4, int(unit_px * 0.08))
+
     with _scissor_clip(px, int(content_bottom), pw, int(content_h)):
         cursor_y = content_top
         blf.size(font_id, list_font_size)
 
-        for category in OPERATOR_CATEGORY_ORDER:
-            ops = state._operator_list_categories.get(category, [])
-            if search_query:
-                ops = [(oid, name) for oid, name in ops if search_query in name.lower() or search_query in oid.lower()]
-            if not ops:
-                continue
-
-            is_expanded = category in state._operator_list_expanded
-            # Auto-expand when searching
-            if search_query:
-                is_expanded = True
-
+        for category, ops, is_expanded in filtered_cats:
             # Draw category header
             gy = cursor_y - group_h + scroll_offset
             if content_bottom <= gy + group_h and gy <= content_top:
-                # Category color accent (use bg color for strip, text color for label)
                 cat_bg_color = CATEGORY_COLORS.get(category, colors['text_dim'])
                 cat_text_color = CATEGORY_TEXT_COLORS.get(category, colors['text_dim'])
                 _draw_rect(shader_uniform, px + sp1, gy, sp2, group_h, cat_bg_color)
 
-                # Header background on hover
                 group_idx = len(state._operator_list_group_rects)
                 if group_idx == state._operator_list_hovered_group:
                     _draw_rect(shader_uniform, px + sp3, gy, pw - sp3 * 2, group_h, colors['menu_hover'])
@@ -1085,26 +1083,25 @@ def _draw_operator_list(shader_uniform, shader_smooth, font_id, font_size, unit_
             cursor_y -= group_h
 
             if is_expanded:
+                # Set item font size once per expanded category
+                if unit_px >= 20:
+                    blf.size(font_id, item_font_size)
                 for op_id, human_name in ops:
                     iy = cursor_y - item_h + scroll_offset
                     if content_bottom <= iy + item_h and iy <= content_top:
-                        # Hover highlight
                         item_idx = len(state._operator_list_item_rects)
                         if item_idx == state._operator_list_hovered_item:
                             _draw_rect(shader_uniform, px + indent, iy, pw - indent - sp2, item_h, colors['menu_hover'])
 
                         if unit_px >= 20:
-                            blf.size(font_id, max(9, int(unit_px * 0.18)))
-                            # Bound indicator dot
                             is_bound = op_id in state._operator_list_bound_ops
                             if is_bound:
-                                dot_size = max(4, int(unit_px * 0.08))
                                 dot_x = px + indent
                                 dot_y = iy + (item_h - dot_size) / 2
                                 _draw_rect(shader_uniform, dot_x, dot_y, dot_size, dot_size, colors['active_highlight'])
                                 text_x = dot_x + dot_size + sp2
                             else:
-                                text_x = px + indent + max(4, int(unit_px * 0.08)) + sp2
+                                text_x = px + indent + dot_size + sp2
 
                             blf.color(font_id, *colors['text'])
                             avail_w = pw - (text_x - px) - sp2
@@ -1817,10 +1814,12 @@ def _draw_side_panels(ctx, kb_bounds):
     min_x, max_x, min_y, max_y = kb_bounds
 
     # --- Feature 4: Editor/Mode filter list panels (softened border) ---
-    _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_px, colors, s)
+    with prof("  filter_lists"):
+        _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_px, colors, s)
 
     # --- Operator List panel ---
-    _draw_operator_list(shader_uniform, shader_smooth, font_id, font_size, unit_px, colors, s)
+    with prof("  operator_list"):
+        _draw_operator_list(shader_uniform, shader_smooth, font_id, font_size, unit_px, colors, s)
 
     # --- L4: Tooltip rendering ---
     if state._tooltip_text and (now - state._tooltip_hover_start) >= 0.5:
@@ -2529,13 +2528,14 @@ def _draw_callback():
             state._truncation_cache = {}
 
         # Feature 3: Compute bound keys, key labels, key categories, badges
-        _compute_bound_keys()
-        _compute_key_labels()
-        _compute_key_categories()
-        _compute_key_editor_icons()
-        _compute_key_modifier_badges()
-        _compute_key_hold_badges()
-        _compute_diff_keys()
+        with prof("compute_caches"):
+            _compute_bound_keys()
+            _compute_key_labels()
+            _compute_key_categories()
+            _compute_key_editor_icons()
+            _compute_key_modifier_badges()
+            _compute_key_hold_badges()
+            _compute_diff_keys()
 
         if state._dirty_flags & DirtyFlag.COLORS or state._colors_cache is None:
             state._colors_cache = _get_colors()
@@ -2586,17 +2586,29 @@ def _draw_callback():
         )
 
         # --- Draw sections ---
-        kb_bounds = _draw_background_plate(ctx)
-        _draw_key_shadows(ctx)
-        key_bg_colors = _draw_key_rectangles(ctx)
-        _draw_key_labels(ctx, key_bg_colors)
-        _draw_toolbar(ctx, kb_bounds)
-        _draw_side_panels(ctx, kb_bounds)
-        _draw_info_panel(ctx, kb_bounds)
-        _draw_capture_overlay(ctx, kb_bounds)
-        _draw_conflict_panel(ctx)
-        _draw_context_menu(ctx)
+        prof.begin_frame()
+        with prof("background_plate"):
+            kb_bounds = _draw_background_plate(ctx)
+        with prof("key_shadows"):
+            _draw_key_shadows(ctx)
+        with prof("key_rectangles"):
+            key_bg_colors = _draw_key_rectangles(ctx)
+        with prof("key_labels"):
+            _draw_key_labels(ctx, key_bg_colors)
+        with prof("toolbar"):
+            _draw_toolbar(ctx, kb_bounds)
+        with prof("side_panels"):
+            _draw_side_panels(ctx, kb_bounds)
+        with prof("info_panel"):
+            _draw_info_panel(ctx, kb_bounds)
+        with prof("capture_overlay"):
+            _draw_capture_overlay(ctx, kb_bounds)
+        with prof("conflict_panel"):
+            _draw_conflict_panel(ctx)
+        with prof("context_menu"):
+            _draw_context_menu(ctx)
 
         gpu.state.blend_set('NONE')
+        prof.end_frame()
     except Exception:
         _log.error("Draw callback failed", exc_info=True)

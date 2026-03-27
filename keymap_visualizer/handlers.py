@@ -5,6 +5,7 @@ Keymap Visualizer – State machine event handlers
 import time
 from . import state
 from .state import DirtyFlag, BINDING_FLAGS, KEYMAP_MUTATION_FLAGS
+from .profiler import prof
 from .hit_testing import (
     _hit_test_key, _hit_test_export, _hit_test_import,
     _hit_test_conflict_buttons, _hit_test_gpu_menu, _hit_test_flyout,
@@ -194,6 +195,19 @@ def _handle_idle(context, event):
 
     # v0.9 Feature 2: Update physical modifiers on every event
     _update_physical_modifiers(event)
+
+    # Profiler toggle: Ctrl+Shift+P
+    if event.type == 'P' and event.value == 'PRESS' and event.ctrl and event.shift:
+        prof.enabled = not prof.enabled
+        if prof.enabled:
+            prof.reset()
+            prof.auto_report_interval = 120
+            print("[Keymap Visualizer] Profiler ON — report every 120 frames. Ctrl+Shift+P to stop.")
+        else:
+            prof.report()
+            prof.auto_report_interval = 0
+            print("[Keymap Visualizer] Profiler OFF.")
+        return {'RUNNING_MODAL'}
 
     # v0.9 Feature 4: Undo/redo (before other key handling)
     if event.type == 'Z' and event.value == 'PRESS' and event.ctrl and not event.shift:
@@ -1329,18 +1343,19 @@ def dispatch(context, event):
     Returns a modal return set ({'RUNNING_MODAL'}, {'PASS_THROUGH'}, etc.)
     or None if the event was not consumed.
     """
-    # Priority handlers (active only in IDLE state)
-    if state._modal_state == 'IDLE':
-        for is_active, handler in _IDLE_PRIORITY_HANDLERS:
-            if is_active():
-                result = handler(context, event)
-                if result is not None:
-                    return result
+    with prof(f"event_{event.type}"):
+        # Priority handlers (active only in IDLE state)
+        if state._modal_state == 'IDLE':
+            for is_active, handler in _IDLE_PRIORITY_HANDLERS:
+                if is_active():
+                    result = handler(context, event)
+                    if result is not None:
+                        return result
 
-    # State machine dispatch
-    handler = _STATE_HANDLERS.get(state._modal_state)
-    if handler is not None:
-        return handler(context, event)
+        # State machine dispatch
+        handler = _STATE_HANDLERS.get(state._modal_state)
+        if handler is not None:
+            return handler(context, event)
 
-    # IDLE state fallback
-    return _handle_idle(context, event)
+        # IDLE state fallback
+        return _handle_idle(context, event)

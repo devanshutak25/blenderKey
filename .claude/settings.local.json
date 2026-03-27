@@ -98,7 +98,8 @@
       "Bash(python -m py_compile keymap_visualizer/preferences.py)",
       "Bash(wc -l /g/Personal/blenderKey/keymap_visualizer/*.py)",
       "Bash(python -m py_compile keymap_visualizer/keymap_data.py)",
-      "Bash(python -m py_compile keymap_visualizer/hit_testing.py)"
+      "Bash(python -m py_compile keymap_visualizer/hit_testing.py)",
+      "Bash(python -m py_compile keymap_visualizer/profiler.py)"
     ]
   }
 }
