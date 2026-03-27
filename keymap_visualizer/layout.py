@@ -14,6 +14,11 @@ def _compute_keyboard_layout(region_width, region_height):
     state._key_rects = []
     state._modifier_rects = []
     state._dirty_flags |= DirtyFlag.BATCH
+    # Invalidate geometry-dependent caches
+    state._border_batch_cache = None
+    state._shadow_batch_cache = None
+    state._truncation_cache = {}
+    state._keyboard_bounds = None
 
     # Read keyboard layout preferences
     try:
@@ -219,6 +224,17 @@ def _compute_keyboard_layout(region_width, region_height):
     for i, (value, label) in enumerate(MODE_FILTERS):
         iy = panel_y + panel_h - header_h - (i + 1) * item_h
         state._filter_mode_list_rects.append((label, value, mode_list_x, iy, mode_list_w, item_h))
+
+    # Cache keyboard bounds for drawing (avoids 4 generator passes per frame)
+    if state._key_rects:
+        state._keyboard_bounds = (
+            min(kr.x for kr in state._key_rects),
+            max(kr.x + kr.w for kr in state._key_rects),
+            min(kr.y for kr in state._key_rects),
+            max(kr.y + kr.h for kr in state._key_rects),
+        )
+    else:
+        state._keyboard_bounds = (0, 0, 0, 0)
 
     # C2: Build spatial index for keyboard navigation
     _compute_key_grid()

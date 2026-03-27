@@ -4,7 +4,7 @@ Keymap Visualizer – State machine event handlers
 
 import time
 from . import state
-from .state import DirtyFlag
+from .state import DirtyFlag, BINDING_FLAGS
 from .hit_testing import (
     _hit_test_key, _hit_test_export, _hit_test_import,
     _hit_test_conflict_buttons, _hit_test_gpu_menu, _hit_test_flyout,
@@ -75,7 +75,7 @@ def _toggle_filter_item(filter_set, value):
     else:
         filter_set.discard('ALL')
         filter_set.add(value)
-    state._invalidate_cache()
+    state._invalidate_cache(BINDING_FLAGS | DirtyFlag.OPERATOR_LIST | DirtyFlag.OPERATOR_BOUND_OPS | DirtyFlag.DIFF)
     _tag_redraw()
 
 
@@ -104,7 +104,7 @@ def _update_physical_modifiers(event):
         new_source = 'PHYSICAL' if any(state._physical_modifiers.values()) else 'TOGGLE'
         if new_source != state._modifier_source:
             state._modifier_source = new_source
-        state._invalidate_cache()
+        state._invalidate_cache(BINDING_FLAGS)
         _tag_redraw()
     return changed
 
@@ -167,7 +167,7 @@ def _handle_resize_drag(context, event):
         if new_scale != state._user_scale:
             state._user_scale = new_scale
             state._cached_region_size = (0, 0)  # Force layout recompute
-            state._invalidate_cache()
+            state._invalidate_cache(DirtyFlag.BATCH)
             _tag_redraw()
         return {'RUNNING_MODAL'}
 
@@ -179,7 +179,7 @@ def _handle_resize_drag(context, event):
         state._user_scale = state._resize_drag_start_scale
         state._resize_dragging = False
         state._cached_region_size = (0, 0)
-        state._invalidate_cache()
+        state._invalidate_cache(DirtyFlag.BATCH)
         _tag_redraw()
         return {'RUNNING_MODAL'}
 
@@ -495,8 +495,7 @@ def _handle_idle(context, event):
             if kr.event_type in MODIFIER_KEY_TO_DICT:
                 dict_key = MODIFIER_KEY_TO_DICT[kr.event_type]
                 state._active_modifiers[dict_key] = not state._active_modifiers[dict_key]
-                state._invalidate_cache()
-                state._dirty_flags |= DirtyFlag.BATCH
+                state._invalidate_cache(BINDING_FLAGS)
                 _tag_redraw()
                 return {'RUNNING_MODAL'}
             # Normal key selection (toggle on re-click)
@@ -622,7 +621,7 @@ def _handle_idle(context, event):
                 if kr.event_type in MODIFIER_KEY_TO_DICT:
                     dict_key = MODIFIER_KEY_TO_DICT[kr.event_type]
                     state._active_modifiers[dict_key] = not state._active_modifiers[dict_key]
-                    state._invalidate_cache()
+                    state._invalidate_cache(BINDING_FLAGS)
                 elif idx == state._selected_key_index:
                     state._selected_key_index = -1
                 else:
@@ -995,10 +994,9 @@ def _handle_shortcut_search(context, event):
             state._active_modifiers['shift'] = event.shift
             state._active_modifiers['alt'] = event.alt
             state._active_modifiers['oskey'] = event.oskey
-            state._invalidate_cache()
+            state._invalidate_cache(BINDING_FLAGS)
 
         state._shortcut_search_active = False
-        state._dirty_flags |= DirtyFlag.BATCH
         _tag_redraw()
         return {'RUNNING_MODAL'}
 
@@ -1240,7 +1238,7 @@ def _handle_op_flyout(context, event):
                                         state._active_modifiers['shift'] = kmi.shift
                                         state._active_modifiers['alt'] = kmi.alt
                                         state._active_modifiers['oskey'] = kmi.oskey
-                                        state._invalidate_cache()
+                                        state._invalidate_cache(BINDING_FLAGS)
                                         break
                                 break
                 _dismiss_op_flyout()

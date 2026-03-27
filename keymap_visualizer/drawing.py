@@ -348,12 +348,20 @@ def _scissor_clip(x, y, w, h):
 
 def _truncate_text(font_id, text, max_width):
     """Truncate text to fit within max_width, adding '\u2026' if needed.
-    Uses binary search for efficiency. Returns (display_text, tw, th)."""
+    Uses binary search for efficiency. Returns (display_text, tw, th).
+    Results are cached per (text, max_width, font_id) to avoid repeated blf.dimensions() calls."""
     if not text or max_width <= 0:
         return "", 0, 0
+    # Check truncation cache
+    cache_key = (text, int(max_width), font_id)
+    cached = state._truncation_cache.get(cache_key)
+    if cached is not None:
+        return cached
     tw, th = blf.dimensions(font_id, text)
     if tw <= max_width:
-        return text, tw, th
+        result = (text, tw, th)
+        state._truncation_cache[cache_key] = result
+        return result
     ellipsis = "\u2026"
     lo, hi = 1, len(text) - 1
     best = 1
@@ -368,7 +376,9 @@ def _truncate_text(font_id, text, max_width):
             hi = mid - 1
     display = text[:best] + ellipsis
     tw, th = blf.dimensions(font_id, display)
-    return display, tw, th
+    result = (display, tw, th)
+    state._truncation_cache[cache_key] = result
+    return result
 
 
 def _draw_scrollbar(shader, x, y, h, scroll_offset, max_scroll, content_h, visible_h,
@@ -1068,10 +1078,7 @@ def _draw_background_plate(ctx):
     colors = ctx.colors
     pad = ctx.s.pad
 
-    min_x = min(kr.x for kr in state._key_rects)
-    max_x = max(kr.x + kr.w for kr in state._key_rects)
-    min_y = min(kr.y for kr in state._key_rects)
-    max_y = max(kr.y + kr.h for kr in state._key_rects)
+    min_x, max_x, min_y, max_y = state._keyboard_bounds
 
     # Include toolbar in bounding box
     if state._export_button_rect:
@@ -1156,27 +1163,29 @@ def _draw_key_shadows(ctx):
     shader_smooth = ctx.shader_smooth
     colors = ctx.colors
 
-    shadow_offset_x = max(1, int(unit_px * 0.04))
-    shadow_offset_y = -max(1, int(unit_px * 0.04))
-    shadow_verts = []
-    shadow_colors = []
-    shadow_indices = []
-    shadow_col = colors['shadow']
-    sidx = 0
-    for kr in state._key_rects:
-        sx = kr.x + shadow_offset_x
-        sy = kr.y + shadow_offset_y
-        shadow_verts.extend([(sx, sy), (sx + kr.w, sy), (sx + kr.w, sy + kr.h), (sx, sy + kr.h)])
-        shadow_colors.extend([shadow_col] * 4)
-        shadow_indices.extend([(sidx, sidx + 1, sidx + 2), (sidx, sidx + 2, sidx + 3)])
-        sidx += 4
+    if state._shadow_batch_cache is None:
+        shadow_offset_x = max(1, int(unit_px * 0.04))
+        shadow_offset_y = -max(1, int(unit_px * 0.04))
+        shadow_verts = []
+        shadow_colors = []
+        shadow_indices = []
+        shadow_col = colors['shadow']
+        sidx = 0
+        for kr in state._key_rects:
+            sx = kr.x + shadow_offset_x
+            sy = kr.y + shadow_offset_y
+            shadow_verts.extend([(sx, sy), (sx + kr.w, sy), (sx + kr.w, sy + kr.h), (sx, sy + kr.h)])
+            shadow_colors.extend([shadow_col] * 4)
+            shadow_indices.extend([(sidx, sidx + 1, sidx + 2), (sidx, sidx + 2, sidx + 3)])
+            sidx += 4
+        if shadow_verts:
+            state._shadow_batch_cache = batch_for_shader(shader_smooth, 'TRIS',
+                                  {"pos": shadow_verts, "color": shadow_colors},
+                                  indices=shadow_indices)
 
-    if shadow_verts:
-        sb = batch_for_shader(shader_smooth, 'TRIS',
-                              {"pos": shadow_verts, "color": shadow_colors},
-                              indices=shadow_indices)
+    if state._shadow_batch_cache:
         shader_smooth.bind()
-        sb.draw(shader_smooth)
+        state._shadow_batch_cache.draw(shader_smooth)
 
 
 def _draw_key_rectangles(ctx):
@@ -1189,35 +1198,32 @@ def _draw_key_rectangles(ctx):
     category_colors_enabled = ctx.category_colors_enabled
 
     # --- Modifier pulsing ---
+    eff_mods = state._get_effective_modifiers()
     physical_active = any(state._physical_modifiers.values())
     pulse_t = 0.0
     if physical_active:
         pulse_t = 0.5 + 0.5 * math.sin(now * 2 * math.pi * 2)  # 2Hz sine
 
+    # Cache hovered/selected event types outside loop
+    hovered_et = state._key_rects[state._hovered_key_index].event_type if state._hovered_key_index >= 0 else None
+    selected_et = state._key_rects[state._selected_key_index].event_type if state._selected_key_index >= 0 else None
+
     # --- C. Key rectangles ---
     verts = []
     key_colors = []
     indices = []
+    key_bg_colors = []  # cached per-key bg colors for text contrast in _draw_key_labels
     idx = 0
 
     search_dimming = state._search_active and state._search_text
 
     for i, kr in enumerate(state._key_rects):
-        # Color priority:
-        # 1. Selected -> key_selected
-        # 2. Hovered -> lerp to key_hovered
-        # 3. Modifier -> COL_KEY_MODIFIER
-        # 4. Category color (v0.9) -> CATEGORY_COLORS[cat]
-        # 5. Bound -> key_bound
-        # 6. Unbound -> key_default
         # ISO Enter co-highlighting: if hovered/selected key shares event_type
         _co_highlight = False
-        if state._hovered_key_index >= 0 and i != state._hovered_key_index:
-            hovered_et = state._key_rects[state._hovered_key_index].event_type
+        if hovered_et and i != state._hovered_key_index:
             if kr.event_type == hovered_et and hovered_et == 'RET':
                 _co_highlight = True
-        if state._selected_key_index >= 0 and i != state._selected_key_index:
-            selected_et = state._key_rects[state._selected_key_index].event_type
+        if selected_et and i != state._selected_key_index:
             if kr.event_type == selected_et and selected_et == 'RET':
                 _co_highlight = True
 
@@ -1234,7 +1240,7 @@ def _draw_key_rectangles(ctx):
             col = colors['key_hovered']
         elif kr.event_type in _MODIFIER_EVENTS:
             dict_key = MODIFIER_KEY_TO_DICT.get(kr.event_type)
-            is_mod_active = state._get_effective_modifiers().get(dict_key, False)
+            is_mod_active = eff_mods.get(dict_key, False)
             if is_mod_active and physical_active and state._physical_modifiers.get(dict_key, False):
                 base = colors['toggle_active']
                 col = (min(1.0, base[0] + pulse_t * 0.15),
@@ -1252,6 +1258,8 @@ def _draw_key_rectangles(ctx):
             col = colors['key_bound']
         else:
             col = colors['key_default']
+
+        key_bg_colors.append(col)
 
         # Diff mode color overrides
         if state._diff_mode_active:
@@ -1290,25 +1298,26 @@ def _draw_key_rectangles(ctx):
     shader_smooth.bind()
     key_batch.draw(shader_smooth)
 
-    # --- D. Key borders ---
-    border_verts = []
-    border_indices = []
-    bidx = 0
-    for kr in state._key_rects:
-        x, y, w, h = kr.x, kr.y, kr.w, kr.h
-        border_verts.extend([(x, y), (x + w, y), (x + w, y + h), (x, y + h)])
-        border_indices.extend([
-            (bidx, bidx + 1), (bidx + 1, bidx + 2),
-            (bidx + 2, bidx + 3), (bidx + 3, bidx),
-        ])
-        bidx += 4
+    # --- D. Key borders (cached — geometry only changes on layout) ---
+    if state._border_batch_cache is None:
+        border_verts = []
+        border_indices = []
+        bidx = 0
+        for kr in state._key_rects:
+            x, y, w, h = kr.x, kr.y, kr.w, kr.h
+            border_verts.extend([(x, y), (x + w, y), (x + w, y + h), (x, y + h)])
+            border_indices.extend([
+                (bidx, bidx + 1), (bidx + 1, bidx + 2),
+                (bidx + 2, bidx + 3), (bidx + 3, bidx),
+            ])
+            bidx += 4
+        state._border_batch_cache = batch_for_shader(shader_uniform, 'LINES',
+                                        {"pos": border_verts},
+                                        indices=border_indices)
 
-    border_batch = batch_for_shader(shader_uniform, 'LINES',
-                                    {"pos": border_verts},
-                                    indices=border_indices)
     shader_uniform.bind()
     shader_uniform.uniform_float("color", colors['border'])
-    border_batch.draw(shader_uniform)
+    state._border_batch_cache.draw(shader_uniform)
 
     # Highlighted border for hovered/selected key
     highlight_idx = state._selected_key_index if state._selected_key_index >= 0 else state._hovered_key_index
@@ -1343,7 +1352,7 @@ def _draw_key_rectangles(ctx):
     for i, kr in enumerate(state._key_rects):
         if kr.event_type in _MODIFIER_EVENTS:
             dict_key = MODIFIER_KEY_TO_DICT.get(kr.event_type)
-            if state._get_effective_modifiers().get(dict_key, False):
+            if eff_mods.get(dict_key, False):
                 x, y, w, h = kr.x, kr.y, kr.w, kr.h
                 hl_verts = [(x, y), (x + w, y), (x + w, y + h), (x, y + h)]
                 hl_indices = [(0, 1), (1, 2), (2, 3), (3, 0)]
@@ -1355,8 +1364,10 @@ def _draw_key_rectangles(ctx):
                 hl_batch.draw(shader_uniform)
                 gpu.state.line_width_set(1.0)
 
+    return key_bg_colors
 
-def _draw_key_labels(ctx):
+
+def _draw_key_labels(ctx, key_bg_colors=None):
     """Section E: key labels (two-line key label + command label)."""
     font_id = ctx.font_id
     colors = ctx.colors
@@ -1380,22 +1391,8 @@ def _draw_key_labels(ctx):
         blf.size(font_id, font_size)
         blf.size(cfont, cmd_font_size)
         for i, kr in enumerate(state._key_rects):
-            # Determine key background color for contrast-aware text
-            if i == state._selected_key_index:
-                key_bg = colors['key_selected']
-            elif i == state._hovered_key_index:
-                key_bg = colors['key_hovered']
-            elif kr.event_type in _MODIFIER_EVENTS:
-                dict_key = MODIFIER_KEY_TO_DICT.get(kr.event_type)
-                key_bg = colors['toggle_active'] if state._get_effective_modifiers().get(dict_key, False) else colors['key_modifier']
-            elif category_colors_enabled and kr.event_type in state._key_categories_cache:
-                cat = state._key_categories_cache[kr.event_type]
-                cat_key = _CAT_COLOR_KEYS.get(cat)
-                key_bg = colors.get(cat_key, colors['key_bound']) if cat_key else colors['key_bound']
-            elif kr.event_type in state._bound_keys_cache:
-                key_bg = colors['key_bound']
-            else:
-                key_bg = colors['key_default']
+            # Use pre-computed background color from _draw_key_rectangles
+            key_bg = key_bg_colors[i] if key_bg_colors and i < len(key_bg_colors) else colors['key_default']
 
             # Contrast-aware text colors
             adaptive_text = _contrasting_text_color(key_bg)
@@ -1434,11 +1431,18 @@ def _draw_key_labels(ctx):
                 blf.position(font_id, tx, ty, 0)
                 blf.draw(font_id, display_label)
 
-            # Draw modifier badge (bottom-right)
+        # --- Badge pass: set badge font size once, draw all badges ---
+        blf.size(font_id, badge_font_size)
+        # Pre-measure static "D" string once
+        d_dims = blf.dimensions(font_id, "D")
+
+        for i, kr in enumerate(state._key_rects):
+            key_bg = key_bg_colors[i] if key_bg_colors and i < len(key_bg_colors) else colors['key_default']
+
+            # Modifier badge (bottom-right)
             badge_count = state._key_modifier_badge_cache.get(kr.event_type, 0)
             if badge_count > 0:
                 badge_text = str(badge_count)
-                blf.size(font_id, badge_font_size)
                 tw, th = blf.dimensions(font_id, badge_text)
                 badge_x = kr.x + kr.w - tw - sp2
                 badge_y = kr.y + sp2
@@ -1448,17 +1452,14 @@ def _draw_key_labels(ctx):
                 blf.color(font_id, *badge_col)
                 blf.position(font_id, badge_x, badge_y, 0)
                 blf.draw(font_id, badge_text)
-                blf.size(font_id, font_size)  # restore for next key
 
-            # Draw hold/drag badge (top-right, amber "D")
+            # Hold/drag badge (top-right, amber "D")
             if kr.event_type in state._key_hold_badge_cache:
-                blf.size(font_id, badge_font_size)
                 hold_col = (0.85, 0.60, 0.35, 0.8)
                 blf.color(font_id, *hold_col)
-                dw, dh = blf.dimensions(font_id, "D")
+                dw, dh = d_dims
                 blf.position(font_id, kr.x + kr.w - dw - sp2, kr.y + kr.h - dh - sp2, 0)
                 blf.draw(font_id, "D")
-                blf.size(font_id, font_size)
 
 
 def _draw_toolbar(ctx, kb_bounds):
@@ -2302,6 +2303,10 @@ def _draw_callback():
         elif state._hover_transition < 1.0:
             state._hover_transition = min(1.0, state._hover_transition + dt * 8.0)
 
+        # Clear per-frame caches when relevant dirty flags are set
+        if state._dirty_flags & (DirtyFlag.KEY_LABELS | DirtyFlag.BATCH):
+            state._truncation_cache = {}
+
         # Feature 3: Compute bound keys, key labels, key categories, badges
         _compute_bound_keys()
         _compute_key_labels()
@@ -2311,8 +2316,12 @@ def _draw_callback():
         _compute_key_hold_badges()
         _compute_diff_keys()
 
-        colors = _get_colors()
-        category_colors_enabled = _get_category_colors_enabled()
+        if state._dirty_flags & DirtyFlag.COLORS or state._colors_cache is None:
+            state._colors_cache = _get_colors()
+            state._category_colors_enabled_cache = _get_category_colors_enabled()
+            state._dirty_flags &= ~DirtyFlag.COLORS
+        colors = state._colors_cache
+        category_colors_enabled = state._category_colors_enabled_cache
         gpu.state.blend_set('ALPHA')
 
         shader_uniform = gpu.shader.from_builtin('UNIFORM_COLOR')
@@ -2354,8 +2363,8 @@ def _draw_callback():
         # --- Draw sections ---
         kb_bounds = _draw_background_plate(ctx)
         _draw_key_shadows(ctx)
-        _draw_key_rectangles(ctx)
-        _draw_key_labels(ctx)
+        key_bg_colors = _draw_key_rectangles(ctx)
+        _draw_key_labels(ctx, key_bg_colors)
         _draw_toolbar(ctx, kb_bounds)
         _draw_side_panels(ctx, kb_bounds)
         _draw_info_panel(ctx, kb_bounds)

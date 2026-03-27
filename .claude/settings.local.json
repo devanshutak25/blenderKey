@@ -88,7 +88,15 @@
       "Bash(do python:*)",
       "Bash(echo \"OK: $f\")",
       "Bash(echo \"FAIL: $f\")",
-      "Bash(done)"
+      "Bash(done)",
+      "mcp__plugin_claude-mem_mcp-search__smart_outline",
+      "Bash(grep:*)",
+      "Bash(python -m py_compile keymap_visualizer/state.py)",
+      "Bash(python -m py_compile keymap_visualizer/layout.py)",
+      "Bash(python -m py_compile keymap_visualizer/drawing.py)",
+      "Bash(python -m py_compile keymap_visualizer/handlers.py)",
+      "Bash(python -m py_compile keymap_visualizer/preferences.py)",
+      "Bash(wc -l /g/Personal/blenderKey/keymap_visualizer/*.py)"
     ]
   }
 }

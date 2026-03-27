@@ -16,7 +16,8 @@ _addon_dir = _os.path.dirname(_os.path.abspath(__file__))
 
 
 def _invalidate(self, ctx):
-    state._invalidate_cache()
+    from .state import DirtyFlag
+    state._invalidate_cache(DirtyFlag.COLORS | DirtyFlag.BATCH)
 
 
 def _invalidate_layout(self, ctx):

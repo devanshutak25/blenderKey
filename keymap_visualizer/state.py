@@ -19,7 +19,13 @@ class DirtyFlag(IntFlag):
     OPERATOR_BOUND_OPS = auto()
     DIFF = auto()
     KEY_HOLD_BADGES = auto()
-    ALL = BATCH | BOUND_KEYS | KEY_LABELS | KEY_CATEGORIES | KEY_EDITOR_ICONS | KEY_MODIFIER_BADGES | OPERATOR_LIST | OPERATOR_BOUND_OPS | DIFF | KEY_HOLD_BADGES
+    COLORS = auto()
+    ALL = BATCH | BOUND_KEYS | KEY_LABELS | KEY_CATEGORIES | KEY_EDITOR_ICONS | KEY_MODIFIER_BADGES | OPERATOR_LIST | OPERATOR_BOUND_OPS | DIFF | KEY_HOLD_BADGES | COLORS
+
+# Convenience flag groups for granular invalidation
+BINDING_FLAGS = (DirtyFlag.BOUND_KEYS | DirtyFlag.KEY_LABELS | DirtyFlag.KEY_CATEGORIES
+                 | DirtyFlag.KEY_EDITOR_ICONS | DirtyFlag.KEY_MODIFIER_BADGES
+                 | DirtyFlag.KEY_HOLD_BADGES | DirtyFlag.BATCH)
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +236,14 @@ _diff_mode_active = False
 _diff_modified_keys = set()    # event_types with modified bindings
 _diff_removed_keys = set()     # event_types with deactivated bindings
 
+# Performance caches
+_colors_cache = None                    # cached _get_colors() dict
+_category_colors_enabled_cache = None   # cached bool
+_keyboard_bounds = None                 # (min_x, max_x, min_y, max_y)
+_border_batch_cache = None              # cached GPU batch for key borders
+_shadow_batch_cache = None              # cached GPU batch for key shadows
+_truncation_cache = {}                  # {(text, max_width, font_id): (display, tw, th)}
+
 # Launch: deferred modal start (stored here because operator instances are
 # freed after execute() returns, so self._xxx is invalid in timer callbacks)
 _launch_window = None
@@ -283,6 +297,8 @@ def _reset_all_state():
     global _capture_new_binding, _capture_target_op_id, _capture_target_km_name
     global _capture_target_key_index, _rebind_flash_key_index, _rebind_flash_time
     global _diff_mode_active, _diff_modified_keys, _diff_removed_keys
+    global _colors_cache, _category_colors_enabled_cache, _keyboard_bounds
+    global _border_batch_cache, _shadow_batch_cache, _truncation_cache
 
     _draw_handle = None
     _target_area = None
@@ -402,14 +418,20 @@ def _reset_all_state():
     _diff_mode_active = False
     _diff_modified_keys = set()
     _diff_removed_keys = set()
+    _colors_cache = None
+    _category_colors_enabled_cache = None
+    _keyboard_bounds = None
+    _border_batch_cache = None
+    _shadow_batch_cache = None
+    _truncation_cache = {}
 
 
-def _invalidate_cache():
-    """Invalidate binding cache and mark batches dirty."""
+def _invalidate_cache(flags=DirtyFlag.ALL):
+    """Invalidate binding cache and mark specific dirty flags."""
     global _bindings_key, _all_bindings_key, _dirty_flags
     _bindings_key = None
     _all_bindings_key = None
-    _dirty_flags = DirtyFlag.ALL
+    _dirty_flags |= flags
 
 
 def _get_effective_modifiers():
