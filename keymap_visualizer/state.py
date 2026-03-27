@@ -69,6 +69,8 @@ _cached_bindings = []              # cached binding results
 _bindings_key = None               # (event_type, mod_tuple) used to cache
 _cached_all_bindings = ([], 0)     # cached all-bindings results for info panel
 _all_bindings_key = None           # cache key for all-bindings
+_all_bindings_lru = {}             # LRU cache: {cache_key: (results, n_matching)}
+_ALL_BINDINGS_LRU_MAX = 16         # max cached keys
 
 # Phase 5: State machine
 _modal_state = 'IDLE'  # IDLE, MENU_OPEN, CAPTURE, CONFLICT
@@ -246,6 +248,9 @@ _keyboard_bounds = None                 # (min_x, max_x, min_y, max_y)
 _border_batch_cache = None              # cached GPU batch for key borders
 _shadow_batch_cache = None              # cached GPU batch for key shadows
 _truncation_cache = {}                  # {(text, max_width, font_id): (display, tw, th)}
+_info_panel_cache_key = None            # cache key for grouped bindings in info panel
+_info_panel_groups_cache = None         # cached _group_bindings() result
+_info_panel_descs_cache = None          # cached operator descriptions dict
 
 # Launch: deferred modal start (stored here because operator instances are
 # freed after execute() returns, so self._xxx is invalid in timer callbacks)
@@ -302,6 +307,7 @@ def _reset_all_state():
     global _diff_mode_active, _diff_modified_keys, _diff_removed_keys
     global _colors_cache, _category_colors_enabled_cache, _keyboard_bounds
     global _border_batch_cache, _shadow_batch_cache, _truncation_cache
+    global _info_panel_cache_key, _info_panel_groups_cache, _info_panel_descs_cache
 
     _draw_handle = None
     _target_area = None
@@ -319,6 +325,7 @@ def _reset_all_state():
     _bindings_key = None
     _cached_all_bindings = ([], 0)
     _all_bindings_key = None
+    _all_bindings_lru.clear()
     _modal_state = 'IDLE'
     _menu_context.clear()
     _conflict_data['conflicts'] = []
@@ -427,13 +434,19 @@ def _reset_all_state():
     _border_batch_cache = None
     _shadow_batch_cache = None
     _truncation_cache = {}
+    _info_panel_cache_key = None
+    _info_panel_groups_cache = None
+    _info_panel_descs_cache = None
 
 
 def _invalidate_cache(flags=DirtyFlag.ALL):
     """Invalidate binding cache and mark specific dirty flags."""
     global _bindings_key, _all_bindings_key, _dirty_flags
+    global _info_panel_cache_key
     _bindings_key = None
     _all_bindings_key = None
+    _all_bindings_lru.clear()
+    _info_panel_cache_key = None  # force info panel re-group on next draw
     _dirty_flags |= flags
 
 

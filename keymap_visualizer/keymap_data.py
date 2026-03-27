@@ -121,13 +121,24 @@ def _get_all_bindings_for_key(event_type):
 
     Returns (results_list, n_matching) where n_matching is the count of
     bindings that match the current effective modifiers.
+    Uses an LRU cache to avoid full keymap scans when hovering between keys.
     """
     effective = state._get_effective_modifiers()
     mod_tuple = (effective['ctrl'], effective['shift'], effective['alt'], effective['oskey'])
     cache_key = (event_type, mod_tuple, frozenset(state._filter_space_types),
                  frozenset(state._filter_modes), state._modifier_source)
+
+    # Check single-entry fast cache first
     if state._all_bindings_key == cache_key:
         return state._cached_all_bindings
+
+    # Check LRU cache
+    lru = state._all_bindings_lru
+    if cache_key in lru:
+        result = lru[cache_key]
+        state._cached_all_bindings = result
+        state._all_bindings_key = cache_key
+        return result
 
     matching = []
     non_matching = []
@@ -163,6 +174,12 @@ def _get_all_bindings_for_key(event_type):
     result = (results, n_matching)
     state._cached_all_bindings = result
     state._all_bindings_key = cache_key
+
+    # Store in LRU cache (evict oldest if full)
+    if len(lru) >= state._ALL_BINDINGS_LRU_MAX:
+        oldest = next(iter(lru))
+        del lru[oldest]
+    lru[cache_key] = result
     return result
 
 

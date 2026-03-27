@@ -1991,21 +1991,28 @@ def _draw_info_panel(ctx, kb_bounds):
 
         if bindings:
             # Single-column layout with scrolling (Issues #2, #3, #12)
-            # Group bindings by (op_id, mod_str) for collapsible display
-            groups = _group_bindings(bindings, n_matching)
+            # Group bindings + descriptions are cached per (event_type, modifiers, filters)
+            panel_cache_key = state._all_bindings_key
+            if state._info_panel_cache_key == panel_cache_key and state._info_panel_groups_cache is not None:
+                groups = state._info_panel_groups_cache
+                _group_descs = state._info_panel_descs_cache
+            else:
+                groups = _group_bindings(bindings, n_matching)
+                _group_descs = {}
+                for group_key, human_name, mod_str, entries, best_rank in groups:
+                    op_id = group_key[0]
+                    desc = _get_operator_description(op_id)
+                    if desc:
+                        _group_descs[group_key] = desc
+                state._info_panel_groups_cache = groups
+                state._info_panel_descs_cache = _group_descs
+                state._info_panel_cache_key = panel_cache_key
+
             line_h = info_font_size + sp2
             content_top = sep_y - sp3
             content_bottom = info_y + sp3
             visible_h = content_top - content_bottom
             max_visible_rows = max(1, int(visible_h / line_h))
-
-            # Pre-fetch descriptions for each group
-            _group_descs = {}
-            for group_key, human_name, mod_str, entries, best_rank in groups:
-                op_id = group_key[0]
-                desc = _get_operator_description(op_id)
-                if desc:
-                    _group_descs[group_key] = desc
 
             # Count total visible rows (depends on expand state)
             total_rows = 0
