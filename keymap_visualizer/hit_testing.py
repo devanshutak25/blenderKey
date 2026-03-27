@@ -27,8 +27,67 @@ def _hit_test_scrolled_list(mx, my, panel_rect, item_rects, scroll):
     return -1
 
 
+# ---------------------------------------------------------------------------
+# Spatial grid for O(1) key hit testing
+# ---------------------------------------------------------------------------
+_grid = None
+_grid_cell_size = 0
+_grid_origin_x = 0.0
+_grid_origin_y = 0.0
+_grid_cols = 0
+_grid_rows = 0
+
+
+def _build_spatial_grid():
+    """Build a grid-based spatial index from state._key_rects.
+    Call this whenever the keyboard layout changes."""
+    global _grid, _grid_cell_size, _grid_origin_x, _grid_origin_y, _grid_cols, _grid_rows
+    rects = state._key_rects
+    if not rects:
+        _grid = None
+        return
+
+    _grid_cell_size = max(max(kr.w, kr.h) for kr in rects)
+    if _grid_cell_size <= 0:
+        _grid = None
+        return
+
+    min_x = min(kr.x for kr in rects)
+    min_y = min(kr.y for kr in rects)
+    max_x = max(kr.x + kr.w for kr in rects)
+    max_y = max(kr.y + kr.h for kr in rects)
+
+    _grid_origin_x = min_x
+    _grid_origin_y = min_y
+    cs = _grid_cell_size
+    _grid_cols = int((max_x - min_x) / cs) + 2
+    _grid_rows = int((max_y - min_y) / cs) + 2
+    _grid = [[] for _ in range(_grid_cols * _grid_rows)]
+
+    for i, kr in enumerate(rects):
+        c0 = int((kr.x - min_x) / cs)
+        c1 = int((kr.x + kr.w - min_x) / cs)
+        r0 = int((kr.y - min_y) / cs)
+        r1 = int((kr.y + kr.h - min_y) / cs)
+        for r in range(r0, min(r1 + 1, _grid_rows)):
+            for c in range(c0, min(c1 + 1, _grid_cols)):
+                _grid[r * _grid_cols + c].append(i)
+
+
 def _hit_test_key(mx, my):
-    """Returns index into state._key_rects or -1."""
+    """Returns index into state._key_rects or -1. Uses spatial grid when available."""
+    if _grid is not None:
+        cs = _grid_cell_size
+        c = int((mx - _grid_origin_x) / cs)
+        r = int((my - _grid_origin_y) / cs)
+        if 0 <= c < _grid_cols and 0 <= r < _grid_rows:
+            for i in _grid[r * _grid_cols + c]:
+                kr = state._key_rects[i]
+                if kr.x <= mx <= kr.x + kr.w and kr.y <= my <= kr.y + kr.h:
+                    return i
+        return -1
+
+    # Fallback: linear scan
     for i, kr in enumerate(state._key_rects):
         if kr.x <= mx <= kr.x + kr.w and kr.y <= my <= kr.y + kr.h:
             return i

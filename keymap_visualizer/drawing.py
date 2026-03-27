@@ -42,6 +42,63 @@ _condensed_font_id = 0
 _loaded_main_path = ""
 _loaded_condensed_path = ""
 
+# ---------------------------------------------------------------------------
+# Cached GPU shaders (lazy-init to avoid calling before GPU context ready)
+# ---------------------------------------------------------------------------
+_shader_uniform = None
+_shader_smooth = None
+
+
+def _get_shader_uniform():
+    global _shader_uniform
+    if _shader_uniform is None:
+        _shader_uniform = gpu.shader.from_builtin('UNIFORM_COLOR')
+    return _shader_uniform
+
+
+def _get_shader_smooth():
+    global _shader_smooth
+    if _shader_smooth is None:
+        _shader_smooth = gpu.shader.from_builtin('SMOOTH_COLOR')
+    return _shader_smooth
+
+
+def _reset_shader_cache():
+    global _shader_uniform, _shader_smooth
+    _shader_uniform = None
+    _shader_smooth = None
+
+
+# ---------------------------------------------------------------------------
+# Pre-allocated key vertex buffers (avoid per-frame list growth)
+# ---------------------------------------------------------------------------
+_key_verts_buf = None
+_key_colors_buf = None
+_key_indices_buf = None
+_key_buf_count = 0
+
+
+def _ensure_key_buffers(n_keys):
+    global _key_verts_buf, _key_colors_buf, _key_indices_buf, _key_buf_count
+    if _key_buf_count == n_keys:
+        return
+    _key_buf_count = n_keys
+    _key_verts_buf = [(0.0, 0.0)] * (n_keys * 4)
+    _key_colors_buf = [(0.0, 0.0, 0.0, 0.0)] * (n_keys * 4)
+    _key_indices_buf = []
+    for i in range(n_keys):
+        base = i * 4
+        _key_indices_buf.append((base, base + 1, base + 2))
+        _key_indices_buf.append((base, base + 2, base + 3))
+
+
+def _reset_key_buffers():
+    global _key_verts_buf, _key_colors_buf, _key_indices_buf, _key_buf_count
+    _key_verts_buf = None
+    _key_colors_buf = None
+    _key_indices_buf = None
+    _key_buf_count = 0
+
 
 def _ensure_font_loaded():
     global _blender_font_id, _condensed_font_id, _loaded_main_path, _loaded_condensed_path
@@ -287,8 +344,74 @@ _CAT_COLOR_KEYS = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Batched rectangle rendering – collects rects and draws them in one GPU call
+# ---------------------------------------------------------------------------
+
+class RectBatcher:
+    """Accumulates filled rectangles and draws them in a single GPU batch."""
+    __slots__ = ('_verts', '_colors', '_indices', '_idx')
+
+    def __init__(self):
+        self._verts = []
+        self._colors = []
+        self._indices = []
+        self._idx = 0
+
+    def add(self, x, y, w, h, color):
+        i = self._idx
+        self._verts.extend(((x, y), (x + w, y), (x + w, y + h), (x, y + h)))
+        self._colors.extend((color, color, color, color))
+        self._indices.extend(((i, i + 1, i + 2), (i, i + 2, i + 3)))
+        self._idx += 4
+
+    def flush(self, shader_smooth):
+        if not self._verts:
+            return
+        batch = batch_for_shader(shader_smooth, 'TRIS',
+                                 {"pos": self._verts, "color": self._colors},
+                                 indices=self._indices)
+        shader_smooth.bind()
+        batch.draw(shader_smooth)
+        self._verts.clear()
+        self._colors.clear()
+        self._indices.clear()
+        self._idx = 0
+
+
+class LineBatcher:
+    """Accumulates rectangle borders and draws them in a single GPU batch."""
+    __slots__ = ('_verts', '_colors', '_indices', '_idx')
+
+    def __init__(self):
+        self._verts = []
+        self._colors = []
+        self._indices = []
+        self._idx = 0
+
+    def add(self, x, y, w, h, color):
+        i = self._idx
+        self._verts.extend(((x, y), (x + w, y), (x + w, y + h), (x, y + h)))
+        self._colors.extend((color, color, color, color))
+        self._indices.extend(((i, i + 1), (i + 1, i + 2), (i + 2, i + 3), (i + 3, i)))
+        self._idx += 4
+
+    def flush(self, shader_smooth):
+        if not self._verts:
+            return
+        batch = batch_for_shader(shader_smooth, 'LINES',
+                                 {"pos": self._verts, "color": self._colors},
+                                 indices=self._indices)
+        shader_smooth.bind()
+        batch.draw(shader_smooth)
+        self._verts.clear()
+        self._colors.clear()
+        self._indices.clear()
+        self._idx = 0
+
+
 def _draw_rect(shader, x, y, w, h, color):
-    """Draw a filled rectangle."""
+    """Draw a filled rectangle (immediate mode – prefer RectBatcher for batching)."""
     verts = [(x, y), (x + w, y), (x + w, y + h), (x, y + h)]
     batch = batch_for_shader(shader, 'TRIS', {"pos": verts}, indices=[(0, 1, 2), (0, 2, 3)])
     shader.bind()
@@ -297,7 +420,7 @@ def _draw_rect(shader, x, y, w, h, color):
 
 
 def _draw_rect_border(shader, x, y, w, h, color):
-    """Draw a rectangle border."""
+    """Draw a rectangle border (immediate mode – prefer LineBatcher for batching)."""
     verts = [(x, y), (x + w, y), (x + w, y + h), (x, y + h)]
     batch = batch_for_shader(shader, 'LINES', {"pos": verts},
                              indices=[(0, 1), (1, 2), (2, 3), (3, 0)])
@@ -1012,35 +1135,41 @@ def _draw_operator_list(shader_uniform, shader_smooth, font_id, font_size, unit_
                                     int(content_bottom), fade_h, colors['panel_bg'], 'UP')
 
 
-def _draw_op_flyout(shader_uniform, font_id, unit_px, colors, s=None):
-    """Draw the operator flyout menu."""
+def _draw_op_flyout(ctx):
+    """Draw the operator flyout menu (batched)."""
     if not state._op_flyout_visible or not state._op_flyout_items:
         return
 
-    if s is None:
-        s = _compute_spacing(unit_px)
-    sp2 = s.sp2
-    sp5 = s.sp5
-    info_font_size = max(11, int(unit_px * 0.28))
+    font_id = ctx.font_id
+    colors = ctx.colors
+    s = ctx.s
+    sp2, sp5 = s.sp2, s.sp5
+    rb = ctx.rb
+    info_font_size = ctx.font_base
 
-    all_x = [item[2] for item in state._op_flyout_items]
-    all_y = [item[3] for item in state._op_flyout_items]
-    all_y_max = [item[3] + item[5] for item in state._op_flyout_items]
-    bg_x = min(all_x) - sp2
-    bg_y = min(all_y) - sp2
-    bg_w = state._op_flyout_items[0][4] + sp2 * 2
-    bg_h = (max(all_y_max) - min(all_y)) + sp2 * 2
+    items = state._op_flyout_items
+    y_min = min(item[3] for item in items)
+    y_max = max(item[3] + item[5] for item in items)
+    bg_x = items[0][2] - sp2
+    bg_y = y_min - sp2
+    bg_w = items[0][4] + sp2 * 2
+    bg_h = (y_max - y_min) + sp2 * 2
 
-    # Drop shadow behind operator flyout
     shadow_off = max(3, sp2)
-    _draw_rect(shader_uniform, bg_x + shadow_off, bg_y - shadow_off, bg_w, bg_h, colors['shadow'])
+    rb.add(bg_x + shadow_off, bg_y - shadow_off, bg_w, bg_h, colors['shadow'])
+    rb.add(bg_x, bg_y, bg_w, bg_h, colors['menu_bg'])
 
-    _draw_panel(shader_uniform, bg_x, bg_y, bg_w, bg_h, colors['menu_bg'], colors['menu_border'])
+    text_items = []
+    for fi_idx, (flabel, faction, fx, fy, fw, fh) in enumerate(items):
+        fcol = colors['menu_hover'] if fi_idx == state._op_flyout_hovered else colors['menu_bg']
+        rb.add(fx, fy, fw, fh, fcol)
+        text_items.append((flabel, fx, fy, fw, fh))
+
+    rb.flush(ctx.shader_smooth)
+    _draw_rect_border(ctx.shader_uniform, bg_x, bg_y, bg_w, bg_h, colors['menu_border'])
 
     action_font_size = max(10, int(info_font_size * 0.9))
-    for fi_idx, (flabel, faction, fx, fy, fw, fh) in enumerate(state._op_flyout_items):
-        fcol = colors['menu_hover'] if fi_idx == state._op_flyout_hovered else colors['menu_bg']
-        _draw_rect(shader_uniform, fx, fy, fw, fh, fcol)
+    for flabel, fx, fy, fw, fh in text_items:
         blf.size(font_id, action_font_size)
         blf.color(font_id, *colors['text'])
         ftw, fth = blf.dimensions(font_id, flabel)
@@ -1061,6 +1190,7 @@ DrawContext = namedtuple('DrawContext', [
     'colors', 's', 'rw', 'rh',
     'font_xs', 'font_sm', 'font_base', 'font_lg', 'font_xl',
     'category_colors_enabled', 'now',
+    'rb', 'lb',
 ])
 
 
@@ -1088,8 +1218,10 @@ def _draw_background_plate(ctx):
         fx, fy, fw, fh = state._presets_btn_rect
         max_y = max(max_y, fy + fh)
 
-    _draw_rect(shader_uniform, min_x - pad, min_y - pad,
-               (max_x - min_x) + 2 * pad, (max_y - min_y) + 2 * pad, colors['background'])
+    rb = ctx.rb
+    lb = ctx.lb
+    rb.add(min_x - pad, min_y - pad,
+           (max_x - min_x) + 2 * pad, (max_y - min_y) + 2 * pad, colors['background'])
 
     # --- Feature 1: Close button (L3: enhanced hover) ---
     if state._close_button_rect is not None:
@@ -1103,35 +1235,15 @@ def _draw_background_plate(ctx):
         else:
             cb_col = colors['button_normal']
             x_col = colors['text']
-        _draw_panel(shader_uniform, cbx, cby, cbw, cbh, cb_col, colors['border'])
-        cb_font_size = max(10, int(cbh * 0.5))
-        blf.size(font_id, cb_font_size)
-        blf.color(font_id, *x_col)
-        tw, th = blf.dimensions(font_id, "X")
-        blf.position(font_id, cbx + (cbw - tw) / 2, cby + (cbh - th) / 2, 0)
-        blf.draw(font_id, "X")
+        rb.add(cbx, cby, cbw, cbh, cb_col)
+        lb.add(cbx, cby, cbw, cbh, colors['border'])
 
     # --- Feature 2: Resize handle ---
+    rh_col = None
     if state._resize_handle_rect is not None:
         rhx, rhy, rhw, rhh = state._resize_handle_rect
         rh_col = colors['button_hover'] if state._resize_hovered else colors['button_normal']
-        _draw_rect(shader_uniform, rhx, rhy, rhw, rhh, rh_col)
-        line_verts = []
-        line_indices = []
-        for li in range(3):
-            offset = (li + 1) * rhw * 0.25
-            line_verts.extend([
-                (rhx + offset, rhy),
-                (rhx + rhw, rhy + rhh - offset),
-            ])
-            idx = li * 2
-            line_indices.append((idx, idx + 1))
-        if line_verts:
-            lb = batch_for_shader(shader_uniform, 'LINES',
-                                  {"pos": line_verts}, indices=line_indices)
-            shader_uniform.bind()
-            shader_uniform.uniform_float("color", colors['border'])
-            lb.draw(shader_uniform)
+        rb.add(rhx, rhy, rhw, rhh, rh_col)
 
     # --- Mouse block outline ---
     si = state._mouse_rects_start_index
@@ -1144,9 +1256,55 @@ def _draw_background_plate(ctx):
             my2 = max(k.y + k.h for k in mouse_keys)
             mp = ctx.s.sp3
             outline_col = (colors['border'][0], colors['border'][1], colors['border'][2], 0.4)
-            _draw_rect_border(shader_uniform, mx1 - mp, my1 - mp,
-                              (mx2 - mx1) + 2 * mp, (my2 - my1) + 2 * mp, outline_col)
-            # Label above mouse block
+            lb.add(mx1 - mp, my1 - mp, (mx2 - mx1) + 2 * mp, (my2 - my1) + 2 * mp, outline_col)
+
+    # Flush all background rects and borders
+    rb.flush(ctx.shader_smooth)
+    lb.flush(ctx.shader_smooth)
+
+    # Draw text elements that must come after the background
+    if state._close_button_rect is not None:
+        cbx, cby, cbw, cbh = state._close_button_rect
+        if state._close_hovered:
+            x_col = colors['conflict_header']
+        else:
+            x_col = colors['text']
+        cb_font_size = max(10, int(cbh * 0.5))
+        blf.size(font_id, cb_font_size)
+        blf.color(font_id, *x_col)
+        tw, th = blf.dimensions(font_id, "X")
+        blf.position(font_id, cbx + (cbw - tw) / 2, cby + (cbh - th) / 2, 0)
+        blf.draw(font_id, "X")
+
+    # Resize handle diagonal lines
+    if state._resize_handle_rect is not None:
+        rhx, rhy, rhw, rhh = state._resize_handle_rect
+        line_verts = []
+        line_indices = []
+        for li in range(3):
+            offset = (li + 1) * rhw * 0.25
+            line_verts.extend([
+                (rhx + offset, rhy),
+                (rhx + rhw, rhy + rhh - offset),
+            ])
+            lidx = li * 2
+            line_indices.append((lidx, lidx + 1))
+        if line_verts:
+            line_batch = batch_for_shader(shader_uniform, 'LINES',
+                                          {"pos": line_verts}, indices=line_indices)
+            shader_uniform.bind()
+            shader_uniform.uniform_float("color", colors['border'])
+            line_batch.draw(shader_uniform)
+
+    # Mouse block label
+    if si >= 0 and si < len(state._key_rects):
+        mouse_keys = state._key_rects[si:]
+        if mouse_keys:
+            mx1 = min(k.x for k in mouse_keys)
+            mx2 = max(k.x + k.w for k in mouse_keys)
+            my2 = max(k.y + k.h for k in mouse_keys)
+            mp = ctx.s.sp3
+            outline_col = (colors['border'][0], colors['border'][1], colors['border'][2], 0.4)
             label_size = max(9, int(ctx.unit_px * 0.2))
             blf.size(font_id, label_size)
             blf.color(font_id, *outline_col)
@@ -1208,12 +1366,12 @@ def _draw_key_rectangles(ctx):
     hovered_et = state._key_rects[state._hovered_key_index].event_type if state._hovered_key_index >= 0 else None
     selected_et = state._key_rects[state._selected_key_index].event_type if state._selected_key_index >= 0 else None
 
-    # --- C. Key rectangles ---
-    verts = []
-    key_colors = []
-    indices = []
+    # --- C. Key rectangles (pre-allocated buffers) ---
+    n_keys = len(state._key_rects)
+    _ensure_key_buffers(n_keys)
+    verts = _key_verts_buf
+    key_colors_buf = _key_colors_buf
     key_bg_colors = []  # cached per-key bg colors for text contrast in _draw_key_labels
-    idx = 0
 
     search_dimming = state._search_active and state._search_text
 
@@ -1287,14 +1445,19 @@ def _draw_key_rectangles(ctx):
                 state._rebind_flash_key_index = -1
 
         x, y, w, h = kr.x, kr.y, kr.w, kr.h
-        verts.extend([(x, y), (x + w, y), (x + w, y + h), (x, y + h)])
-        key_colors.extend([col, col, col, col])
-        indices.extend([(idx, idx + 1, idx + 2), (idx, idx + 2, idx + 3)])
-        idx += 4
+        base = i * 4
+        verts[base] = (x, y)
+        verts[base + 1] = (x + w, y)
+        verts[base + 2] = (x + w, y + h)
+        verts[base + 3] = (x, y + h)
+        key_colors_buf[base] = col
+        key_colors_buf[base + 1] = col
+        key_colors_buf[base + 2] = col
+        key_colors_buf[base + 3] = col
 
     key_batch = batch_for_shader(shader_smooth, 'TRIS',
-                                 {"pos": verts, "color": key_colors},
-                                 indices=indices)
+                                 {"pos": verts, "color": key_colors_buf},
+                                 indices=_key_indices_buf)
     shader_smooth.bind()
     key_batch.draw(shader_smooth)
 
@@ -1478,47 +1641,58 @@ def _draw_toolbar(ctx, kb_bounds):
     font_size = max(11, int(unit_px * 0.3))
     min_x, max_x, min_y, max_y = kb_bounds
 
-    # --- F2. Export button (Phase 6) ---
+    rb = ctx.rb
+    lb = ctx.lb
+
+    # --- F2. Toolbar buttons (batched) ---
     if state._export_button_rect is not None:
         ex, ey, ew, eh = state._export_button_rect
         ex_col = colors['export_button_hover'] if state._export_hovered else colors['export_button']
-        _draw_panel(shader_uniform, ex, ey, ew, eh, ex_col, colors['border'])
+        rb.add(ex, ey, ew, eh, ex_col)
+        lb.add(ex, ey, ew, eh, colors['border'])
 
-        if unit_px >= 20:
-            blf.size(font_id, font_sm)
-            blf.color(font_id, *colors['text'])
-            elabel = "Export"
-            tw, th = blf.dimensions(font_id, elabel)
-            blf.position(font_id, ex + (ew - tw) / 2, ey + (eh - th) / 2, 0)
-            blf.draw(font_id, elabel)
-
-    # --- Import button ---
     if state._import_button_rect is not None:
         ix, iy, iw, ih = state._import_button_rect
         im_col = colors['button_hover'] if state._import_hovered else colors['button_normal']
-        _draw_panel(shader_uniform, ix, iy, iw, ih, im_col, colors['border'])
+        rb.add(ix, iy, iw, ih, im_col)
+        lb.add(ix, iy, iw, ih, colors['border'])
 
-        if unit_px >= 20:
-            blf.size(font_id, font_sm)
-            blf.color(font_id, *colors['text'])
-            ilabel = "Import"
-            tw, th = blf.dimensions(font_id, ilabel)
-            blf.position(font_id, ix + (iw - tw) / 2, iy + (ih - th) / 2, 0)
-            blf.draw(font_id, ilabel)
-
-    # --- v0.9 Feature 6: Presets button ---
     if state._presets_btn_rect is not None:
         px, py, pw, ph = state._presets_btn_rect
         pr_col = colors['button_hover'] if state._presets_hovered else colors['button_normal']
-        _draw_panel(shader_uniform, px, py, pw, ph, pr_col, colors['border'])
+        rb.add(px, py, pw, ph, pr_col)
+        lb.add(px, py, pw, ph, colors['border'])
 
-        if unit_px >= 20:
-            blf.size(font_id, font_sm)
-            blf.color(font_id, *colors['text'])
-            plabel = state._active_preset_name if state._active_preset_name else "Presets"
-            plabel, tw, th = _truncate_text(font_id, plabel, pw - sp5)
-            blf.position(font_id, px + (pw - tw) / 2, py + (ph - th) / 2, 0)
-            blf.draw(font_id, plabel)
+    rb.flush(ctx.shader_smooth)
+    lb.flush(ctx.shader_smooth)
+
+    # --- Toolbar button labels ---
+    if state._export_button_rect is not None and unit_px >= 20:
+        ex, ey, ew, eh = state._export_button_rect
+        blf.size(font_id, font_sm)
+        blf.color(font_id, *colors['text'])
+        elabel = "Export"
+        tw, th = blf.dimensions(font_id, elabel)
+        blf.position(font_id, ex + (ew - tw) / 2, ey + (eh - th) / 2, 0)
+        blf.draw(font_id, elabel)
+
+    if state._import_button_rect is not None and unit_px >= 20:
+        ix, iy, iw, ih = state._import_button_rect
+        blf.size(font_id, font_sm)
+        blf.color(font_id, *colors['text'])
+        ilabel = "Import"
+        tw, th = blf.dimensions(font_id, ilabel)
+        blf.position(font_id, ix + (iw - tw) / 2, iy + (ih - th) / 2, 0)
+        blf.draw(font_id, ilabel)
+
+    if state._presets_btn_rect is not None and unit_px >= 20:
+        px, py, pw, ph = state._presets_btn_rect
+        blf.size(font_id, font_sm)
+        blf.color(font_id, *colors['text'])
+        plabel = state._active_preset_name if state._active_preset_name else "Presets"
+        plabel, tw, th = _truncate_text(font_id, plabel, pw - sp5)
+        blf.position(font_id, px + (pw - tw) / 2, py + (ph - th) / 2, 0)
+        blf.draw(font_id, plabel)
 
     # --- v0.9 Feature 4: Undo/redo counter ---
     undo_count = len(state._undo_stack)
@@ -1545,8 +1719,10 @@ def _draw_toolbar(ctx, kb_bounds):
         if state._export_button_rect:
             fx, fy, fw, fh = state._export_button_rect
             badge_y = max(badge_y, fy + fh + sp5)
-        _draw_panel(shader_uniform, badge_x, badge_y, badge_w, badge_h,
-                    colors['export_button'], colors['border'])
+        rb.add(badge_x, badge_y, badge_w, badge_h, colors['export_button'])
+        lb.add(badge_x, badge_y, badge_w, badge_h, colors['border'])
+        rb.flush(ctx.shader_smooth)
+        lb.flush(ctx.shader_smooth)
         blf.size(font_id, font_xs)
         blf.color(font_id, *colors['text'])
         blf.position(font_id, badge_x + sp5, badge_y + sp3, 0)
@@ -1562,7 +1738,10 @@ def _draw_toolbar(ctx, kb_bounds):
             fx, fy, fw, fh = state._export_button_rect
             sb_y = max(sb_y, fy + fh + sp5)
 
-        _draw_panel(shader_uniform, sb_x, sb_y, sb_w, sb_h, colors['search_bg'], colors['search_border'])
+        rb.add(sb_x, sb_y, sb_w, sb_h, colors['search_bg'])
+        lb.add(sb_x, sb_y, sb_w, sb_h, colors['search_border'])
+        rb.flush(ctx.shader_smooth)
+        lb.flush(ctx.shader_smooth)
 
         if unit_px >= 20:
             blf.size(font_id, font_base)
@@ -1596,8 +1775,11 @@ def _draw_toolbar(ctx, kb_bounds):
         sb_x = (rw - sb_w) / 2
         sb_y = rh / 2 - sb_h / 2
 
-        _draw_rect(shader_uniform, 0, 0, rw, rh, colors['capture_overlay'])
-        _draw_panel(shader_uniform, sb_x, sb_y, sb_w, sb_h, colors['search_bg'], colors['search_border'])
+        rb.add(0, 0, rw, rh, colors['capture_overlay'])
+        rb.add(sb_x, sb_y, sb_w, sb_h, colors['search_bg'])
+        lb.add(sb_x, sb_y, sb_w, sb_h, colors['search_border'])
+        rb.flush(ctx.shader_smooth)
+        lb.flush(ctx.shader_smooth)
 
         if unit_px >= 20:
             blf.size(font_id, font_size)
@@ -1651,13 +1833,16 @@ def _draw_side_panels(ctx, kb_bounds):
         tip_y = max_y + pad + sp3
         if state._export_button_rect:
             tip_y = max(tip_y, state._export_button_rect[1] + state._export_button_rect[3] + sp3)
-        _draw_rect(shader_uniform, tip_x, tip_y, tw_tip + tip_pad * 2, th_tip + tip_pad * 2, colors['panel_bg'])
+        rb = ctx.rb
+        rb.add(tip_x, tip_y, tw_tip + tip_pad * 2, th_tip + tip_pad * 2, colors['panel_bg'])
+        rb.flush(ctx.shader_smooth)
         _draw_rect_border(shader_uniform, tip_x, tip_y, tw_tip + tip_pad * 2, th_tip + tip_pad * 2, colors['border'])
         blf.position(font_id, tip_x + tip_pad, tip_y + tip_pad, 0)
         blf.draw(font_id, state._tooltip_text)
 
     # --- v0.9 Feature 6: Preset dropdown ---
     if state._preset_dropdown_open and state._preset_dropdown_rects:
+        rb = ctx.rb
         first_dd = state._preset_dropdown_rects[0]
         dd_min_y = min(item[3] for item in state._preset_dropdown_rects)
         dd_max_y = max(item[3] + item[5] for item in state._preset_dropdown_rects)
@@ -1665,10 +1850,10 @@ def _draw_side_panels(ctx, kb_bounds):
         dd_w = first_dd[4] + sp2 * 2
         dd_h = (dd_max_y - dd_min_y) + sp2 * 2
 
-        # Drop shadow behind preset dropdown
-        _draw_rect(shader_uniform, dd_x + max(3, sp2), dd_min_y - sp2 - max(3, sp2), dd_w, dd_h, colors['shadow'])
-        _draw_panel(shader_uniform, dd_x, dd_min_y - sp2, dd_w, dd_h, colors['menu_bg'], colors['menu_border'])
+        rb.add(dd_x + max(3, sp2), dd_min_y - sp2 - max(3, sp2), dd_w, dd_h, colors['shadow'])
+        rb.add(dd_x, dd_min_y - sp2, dd_w, dd_h, colors['menu_bg'])
 
+        dd_text_items = []
         for di, item in enumerate(state._preset_dropdown_rects):
             dlabel, daction, dx, dy, dw, dh = item[:6]
             if di == state._preset_dropdown_hovered:
@@ -1677,9 +1862,14 @@ def _draw_side_panels(ctx, kb_bounds):
                 dcol = colors['active_highlight']
             else:
                 dcol = colors['menu_bg']
-            _draw_rect(shader_uniform, dx, dy, dw, dh, dcol)
+            rb.add(dx, dy, dw, dh, dcol)
+            dd_text_items.append((dlabel, dx, dy, dw, dh))
 
-            if unit_px >= 20:
+        rb.flush(ctx.shader_smooth)
+        _draw_rect_border(shader_uniform, dd_x, dd_min_y - sp2, dd_w, dd_h, colors['menu_border'])
+
+        if unit_px >= 20:
+            for dlabel, dx, dy, dw, dh in dd_text_items:
                 blf.size(font_id, font_size)
                 blf.color(font_id, *colors['text'])
                 tw, th = blf.dimensions(font_id, dlabel)
@@ -1708,18 +1898,22 @@ def _draw_side_panels(ctx, kb_bounds):
             toolbar_h = state._export_button_rect[3]
             lx = min_x
             ly = toolbar_y + (toolbar_h - swatch_size) / 2
+            legend_rb = ctx.rb
+            legend_items = []
             for cat_name in sorted_cats:
                 cat_key = _CAT_COLOR_KEYS.get(cat_name)
                 cat_col = colors.get(cat_key, colors['key_bound']) if cat_key else colors['key_bound']
-                _draw_rect(shader_uniform, lx, ly, swatch_size, swatch_size, cat_col)
-                blf.color(font_id, *colors['text_dim'])
-                tw, th = blf.dimensions(font_id, cat_name)
-                blf.position(font_id, lx + swatch_size + swatch_gap, ly + (swatch_size - th) / 2, 0)
-                blf.draw(font_id, cat_name)
+                legend_rb.add(lx, ly, swatch_size, swatch_size, cat_col)
+                legend_items.append((cat_name, lx))
                 lx += entry_w
-                # Stop if we'd overlap the right-aligned buttons
                 if state._export_button_rect and lx + entry_w > state._export_button_rect[0] - sp5:
                     break
+            legend_rb.flush(ctx.shader_smooth)
+            for cat_name, cat_lx in legend_items:
+                blf.color(font_id, *colors['text_dim'])
+                tw, th = blf.dimensions(font_id, cat_name)
+                blf.position(font_id, cat_lx + swatch_size + swatch_gap, ly + (swatch_size - th) / 2, 0)
+                blf.draw(font_id, cat_name)
 
 
 def _draw_info_panel(ctx, kb_bounds):
@@ -2020,12 +2214,13 @@ def _draw_capture_overlay(ctx, kb_bounds):
 
     # --- H. Capture overlay (Phase 5: soft dim instead of black overlay) ---
     if state._modal_state == 'CAPTURE':
-        # Dim all keys by drawing semi-transparent dark overlay
+        rb = ctx.rb
         dim_overlay = (0.0, 0.0, 0.0, 0.5)
         for ki, kr in enumerate(state._key_rects):
             if ki == state._capture_target_key_index:
-                continue  # keep target key bright
-            _draw_rect(shader_uniform, kr.x, kr.y, kr.w, kr.h, dim_overlay)
+                continue
+            rb.add(kr.x, kr.y, kr.w, kr.h, dim_overlay)
+        rb.flush(ctx.shader_smooth)
 
         # Pulsing border on target key
         if 0 <= state._capture_target_key_index < len(state._key_rects):
@@ -2079,14 +2274,37 @@ def _draw_conflict_panel(ctx):
     if state._modal_state != 'CONFLICT':
         return
 
-    _draw_rect(shader_uniform, 0, 0, rw, rh, colors['capture_overlay'])
+    rb = ctx.rb
+    lb = ctx.lb
+
+    rb.add(0, 0, rw, rh, colors['capture_overlay'])
 
     panel_w = min(500, rw * 0.7)
     panel_h = min(300, rh * 0.5)
     panel_x = (rw - panel_w) / 2
     panel_y = (rh - panel_h) / 2
 
-    _draw_panel(shader_uniform, panel_x, panel_y, panel_w, panel_h, colors['conflict_bg'], colors['border'])
+    rb.add(panel_x, panel_y, panel_w, panel_h, colors['conflict_bg'])
+    lb.add(panel_x, panel_y, panel_w, panel_h, colors['border'])
+
+    btn_w = max(80, int(unit_px * 1.5))
+    btn_h = max(24, int(unit_px * 0.45))
+    btn_y = panel_y + sp6
+    btn_gap = sp6
+    total_btn_w = 3 * btn_w + 2 * btn_gap
+    btn_start_x = panel_x + (panel_w - total_btn_w) / 2
+
+    btn_labels = [("Swap", "SWAP"), ("Override", "OVERRIDE"), ("Cancel", "CANCEL")]
+    state._conflict_button_rects.clear()
+    for bi, (blabel, baction) in enumerate(btn_labels):
+        bx = btn_start_x + bi * (btn_w + btn_gap)
+        bcol = colors['button_hover'] if bi == state._conflict_hovered_button else colors['button_normal']
+        rb.add(bx, btn_y, btn_w, btn_h, bcol)
+        lb.add(bx, btn_y, btn_w, btn_h, colors['border'])
+        state._conflict_button_rects.append((blabel, baction, bx, btn_y, btn_w, btn_h))
+
+    rb.flush(ctx.shader_smooth)
+    lb.flush(ctx.shader_smooth)
 
     hdr_size = font_lg
     blf.size(font_id, hdr_size)
@@ -2125,21 +2343,7 @@ def _draw_conflict_panel(ctx):
         blf.position(font_id, panel_x + sp6, cy, 0)
         blf.draw(font_id, conflict_display)
 
-    btn_w = max(80, int(unit_px * 1.5))
-    btn_h = max(24, int(unit_px * 0.45))
-    btn_y = panel_y + sp6
-    btn_gap = sp6
-    total_btn_w = 3 * btn_w + 2 * btn_gap
-    btn_start_x = panel_x + (panel_w - total_btn_w) / 2
-
-    btn_labels = [("Swap", "SWAP"), ("Override", "OVERRIDE"), ("Cancel", "CANCEL")]
-    state._conflict_button_rects.clear()
-    for bi, (blabel, baction) in enumerate(btn_labels):
-        bx = btn_start_x + bi * (btn_w + btn_gap)
-        bcol = colors['button_hover'] if bi == state._conflict_hovered_button else colors['button_normal']
-        _draw_panel(shader_uniform, bx, btn_y, btn_w, btn_h, bcol, colors['border'])
-        state._conflict_button_rects.append((blabel, baction, bx, btn_y, btn_w, btn_h))
-
+    for blabel, baction, bx, _, btn_w, btn_h in state._conflict_button_rects:
         blf.size(font_id, info_font_size)
         blf.color(font_id, *colors['text'])
         tw, th = blf.dimensions(font_id, blabel)
@@ -2150,6 +2354,7 @@ def _draw_conflict_panel(ctx):
 def _draw_context_menu(ctx):
     """Section J + Operator flyout: GPU context menu and flyout."""
     shader_uniform = ctx.shader_uniform
+    shader_smooth = ctx.shader_smooth
     font_id = ctx.font_id
     colors = ctx.colors
     unit_px = ctx.unit_px
@@ -2157,42 +2362,71 @@ def _draw_context_menu(ctx):
     sp2, sp3, sp5 = s.sp2, s.sp3, s.sp5
     font_base = ctx.font_base
     info_font_size = font_base
+    rb = ctx.rb
 
     # --- J. GPU-drawn context menu (humanized + flyout) ---
     if state._modal_state == 'MENU_OPEN' and state._gpu_menu_items:
         # Draw main menu background with drop shadow
-        all_x = [item[2] for item in state._gpu_menu_items]
-        all_y = [item[3] for item in state._gpu_menu_items]
-        all_y_max = [item[3] + item[5] for item in state._gpu_menu_items]
-        menu_bg_x = min(all_x) - sp2
-        menu_bg_y = min(all_y) - sp2
-        menu_bg_w = state._gpu_menu_items[0][4] + sp2 * 2
-        menu_bg_h = (max(all_y_max) - min(all_y)) + sp2 * 2
+        menu_items = state._gpu_menu_items
+        menu_y_min = min(item[3] for item in menu_items)
+        menu_y_max = max(item[3] + item[5] for item in menu_items)
+        menu_bg_x = menu_items[0][2] - sp2
+        menu_bg_y = menu_y_min - sp2
+        menu_bg_w = menu_items[0][4] + sp2 * 2
+        menu_bg_h = (menu_y_max - menu_y_min) + sp2 * 2
 
-        # Drop shadow behind menu
         shadow_off = max(3, sp2)
-        _draw_rect(shader_uniform, menu_bg_x + shadow_off, menu_bg_y - shadow_off,
-                    menu_bg_w, menu_bg_h, colors['shadow'])
 
-        _draw_panel(shader_uniform, menu_bg_x, menu_bg_y, menu_bg_w, menu_bg_h,
-                    colors['menu_bg'], colors['menu_border'])
+        # Batch: shadow + bg + border + all item rects
+        rb.add(menu_bg_x + shadow_off, menu_bg_y - shadow_off,
+               menu_bg_w, menu_bg_h, colors['shadow'])
+        rb.add(menu_bg_x, menu_bg_y, menu_bg_w, menu_bg_h, colors['menu_bg'])
 
-        # Draw main menu items (humanized operator names)
         all_bindings = state._menu_context.get('all_bindings', [])
         menu_font_size = info_font_size
-        for mi_idx, item in enumerate(state._gpu_menu_items):
-            mlabel, mbind_idx, mx, my, mw, mh, m_is_active = item
 
-            # Highlight: flyout target or hovered
+        # Pre-compute text layout data while batching rects
+        text_items = []
+        for mi_idx, item in enumerate(menu_items):
+            mlabel, mbind_idx, mx, my, mw, mh, m_is_active = item
             is_flyout_target = (mi_idx == state._flyout_target_index)
             is_hovered = (mi_idx == state._gpu_menu_hovered)
-            if is_flyout_target or is_hovered:
-                mcol = colors['menu_hover']
-            else:
-                mcol = colors['menu_bg']
-            _draw_rect(shader_uniform, mx, my, mw, mh, mcol)
+            mcol = colors['menu_hover'] if (is_flyout_target or is_hovered) else colors['menu_bg']
+            rb.add(mx, my, mw, mh, mcol)
+            text_items.append((mlabel, mbind_idx, mx, my, mw, mh, m_is_active))
 
-            # Draw editor icon
+        # Flyout rects (if present)
+        fly_text_items = []
+        fly_action_font_size = max(10, int(info_font_size * 0.9))
+        if state._gpu_flyout_items:
+            fly_items = state._gpu_flyout_items
+            fly_y_min = min(fi[3] for fi in fly_items)
+            fly_y_max = max(fi[3] + fi[5] for fi in fly_items)
+            fly_bg_x = fly_items[0][2] - sp2
+            fly_bg_y = fly_y_min - sp2
+            fly_bg_w = fly_items[0][4] + sp2 * 2
+            fly_bg_h = (fly_y_max - fly_y_min) + sp2 * 2
+
+            rb.add(fly_bg_x + shadow_off, fly_bg_y - shadow_off,
+                   fly_bg_w, fly_bg_h, colors['shadow'])
+            rb.add(fly_bg_x, fly_bg_y, fly_bg_w, fly_bg_h, colors['menu_bg'])
+
+            for fi_idx, fitem in enumerate(fly_items):
+                flabel, faction, fx, fy, fw, fh, fbind_idx = fitem
+                fcol = colors['menu_hover'] if fi_idx == state._gpu_flyout_hovered else colors['menu_bg']
+                rb.add(fx, fy, fw, fh, fcol)
+                fly_text_items.append((flabel, fx, fy, fw, fh))
+
+        # Flush all menu/flyout rects + borders in one batch
+        rb.flush(shader_smooth)
+
+        # Draw menu borders (lightweight — just 2 line draw calls)
+        _draw_rect_border(shader_uniform, menu_bg_x, menu_bg_y, menu_bg_w, menu_bg_h, colors['menu_border'])
+        if state._gpu_flyout_items:
+            _draw_rect_border(shader_uniform, fly_bg_x, fly_bg_y, fly_bg_w, fly_bg_h, colors['menu_border'])
+
+        # Now draw all text + icons (after rects are rendered)
+        for mlabel, mbind_idx, mx, my, mw, mh, m_is_active in text_items:
             menu_icon_size = int(mh * 0.7)
             menu_text_x = mx + sp5
             if 0 <= mbind_idx < len(all_bindings) and len(all_bindings[mbind_idx]) > 5:
@@ -2201,7 +2435,6 @@ def _draw_context_menu(ctx):
                 if menu_icon_tex:
                     menu_text_x = mx + menu_icon_size + sp5
 
-            # Draw label (dimmed if inactive)
             blf.size(font_id, menu_font_size)
             if m_is_active:
                 blf.color(font_id, *colors['text'])
@@ -2211,36 +2444,16 @@ def _draw_context_menu(ctx):
             blf.position(font_id, menu_text_x, my + (mh - th) / 2, 0)
             blf.draw(font_id, mlabel)
 
-        # Draw flyout sub-menu if present
-        if state._gpu_flyout_items:
-            fly_all_x = [fi[2] for fi in state._gpu_flyout_items]
-            fly_all_y = [fi[3] for fi in state._gpu_flyout_items]
-            fly_all_y_max = [fi[3] + fi[5] for fi in state._gpu_flyout_items]
-            fly_bg_x = min(fly_all_x) - sp2
-            fly_bg_y = min(fly_all_y) - sp2
-            fly_bg_w = state._gpu_flyout_items[0][4] + sp2 * 2
-            fly_bg_h = (max(fly_all_y_max) - min(fly_all_y)) + sp2 * 2
-
-            # Drop shadow behind flyout
-            _draw_rect(shader_uniform, fly_bg_x + shadow_off, fly_bg_y - shadow_off,
-                        fly_bg_w, fly_bg_h, colors['shadow'])
-
-            _draw_panel(shader_uniform, fly_bg_x, fly_bg_y, fly_bg_w, fly_bg_h,
-                        colors['menu_bg'], colors['menu_border'])
-
-            action_font_size = max(10, int(info_font_size * 0.9))
-            for fi_idx, fitem in enumerate(state._gpu_flyout_items):
-                flabel, faction, fx, fy, fw, fh, fbind_idx = fitem
-                fcol = colors['menu_hover'] if fi_idx == state._gpu_flyout_hovered else colors['menu_bg']
-                _draw_rect(shader_uniform, fx, fy, fw, fh, fcol)
-                blf.size(font_id, action_font_size)
-                blf.color(font_id, *colors['text'])
-                ftw, fth = blf.dimensions(font_id, flabel)
-                blf.position(font_id, fx + sp5, fy + (fh - fth) / 2, 0)
-                blf.draw(font_id, flabel)
+        # Draw flyout text
+        for flabel, fx, fy, fw, fh in fly_text_items:
+            blf.size(font_id, fly_action_font_size)
+            blf.color(font_id, *colors['text'])
+            ftw, fth = blf.dimensions(font_id, flabel)
+            blf.position(font_id, fx + sp5, fy + (fh - fth) / 2, 0)
+            blf.draw(font_id, flabel)
 
     # --- Operator flyout menu ---
-    _draw_op_flyout(shader_uniform, font_id, unit_px, colors, s)
+    _draw_op_flyout(ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -2303,8 +2516,9 @@ def _draw_callback():
         elif state._hover_transition < 1.0:
             state._hover_transition = min(1.0, state._hover_transition + dt * 8.0)
 
-        # Clear per-frame caches when relevant dirty flags are set
-        if state._dirty_flags & (DirtyFlag.KEY_LABELS | DirtyFlag.BATCH):
+        # Clear text truncation cache only when labels actually change.
+        # Layout changes produce natural cache misses via different max_width keys.
+        if state._dirty_flags & DirtyFlag.KEY_LABELS or len(state._truncation_cache) > 500:
             state._truncation_cache = {}
 
         # Feature 3: Compute bound keys, key labels, key categories, badges
@@ -2324,8 +2538,8 @@ def _draw_callback():
         category_colors_enabled = state._category_colors_enabled_cache
         gpu.state.blend_set('ALPHA')
 
-        shader_uniform = gpu.shader.from_builtin('UNIFORM_COLOR')
-        shader_smooth = gpu.shader.from_builtin('SMOOTH_COLOR')
+        shader_uniform = _get_shader_uniform()
+        shader_smooth = _get_shader_smooth()
 
         unit_px = min(rw / 24, rh / 12) * state._user_scale
 
@@ -2341,7 +2555,9 @@ def _draw_callback():
 
         font_id = _ensure_font_loaded()
 
-        # Build shared draw context
+        # Build shared draw context with batchers
+        rb = RectBatcher()
+        lb = LineBatcher()
         ctx = DrawContext(
             shader_uniform=shader_uniform,
             shader_smooth=shader_smooth,
@@ -2358,6 +2574,8 @@ def _draw_callback():
             font_xl=font_xl,
             category_colors_enabled=category_colors_enabled,
             now=now,
+            rb=rb,
+            lb=lb,
         )
 
         # --- Draw sections ---

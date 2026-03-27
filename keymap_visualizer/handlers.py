@@ -4,7 +4,7 @@ Keymap Visualizer – State machine event handlers
 
 import time
 from . import state
-from .state import DirtyFlag, BINDING_FLAGS
+from .state import DirtyFlag, BINDING_FLAGS, KEYMAP_MUTATION_FLAGS
 from .hit_testing import (
     _hit_test_key, _hit_test_export, _hit_test_import,
     _hit_test_conflict_buttons, _hit_test_gpu_menu, _hit_test_flyout,
@@ -198,13 +198,13 @@ def _handle_idle(context, event):
     # v0.9 Feature 4: Undo/redo (before other key handling)
     if event.type == 'Z' and event.value == 'PRESS' and event.ctrl and not event.shift:
         if _do_undo():
-            state._invalidate_cache()
+            state._invalidate_cache(KEYMAP_MUTATION_FLAGS)
             _tag_redraw()
         return {'RUNNING_MODAL'}
 
     if event.type == 'Z' and event.value == 'PRESS' and event.ctrl and event.shift:
         if _do_redo():
-            state._invalidate_cache()
+            state._invalidate_cache(KEYMAP_MUTATION_FLAGS)
             _tag_redraw()
         return {'RUNNING_MODAL'}
 
@@ -665,7 +665,7 @@ def _dispatch_flyout_action(action, binding_index):
     elif action == 'UNBIND' and kmi:
         _push_undo([kmi])
         kmi.active = False
-        state._invalidate_cache()
+        state._invalidate_cache(KEYMAP_MUTATION_FLAGS)
         state._modal_state = 'IDLE'
     elif action == 'RESET' and kmi and km_name:
         _push_undo([kmi])
@@ -674,7 +674,7 @@ def _dispatch_flyout_action(action, binding_index):
     elif action == 'TOGGLE' and kmi:
         _push_undo([kmi])
         kmi.active = not kmi.active
-        state._invalidate_cache()
+        state._invalidate_cache(KEYMAP_MUTATION_FLAGS)
         state._modal_state = 'IDLE'
     else:
         state._modal_state = 'IDLE'
@@ -914,7 +914,7 @@ def _handle_conflict(context, event):
                 state._rebind_flash_time = time.monotonic()
 
         state._modal_state = 'IDLE'
-        state._invalidate_cache()
+        state._invalidate_cache(KEYMAP_MUTATION_FLAGS)
         _dismiss_conflict()
         return {'RUNNING_MODAL'}
 

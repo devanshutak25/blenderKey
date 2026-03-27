@@ -27,6 +27,9 @@ BINDING_FLAGS = (DirtyFlag.BOUND_KEYS | DirtyFlag.KEY_LABELS | DirtyFlag.KEY_CAT
                  | DirtyFlag.KEY_EDITOR_ICONS | DirtyFlag.KEY_MODIFIER_BADGES
                  | DirtyFlag.KEY_HOLD_BADGES | DirtyFlag.BATCH)
 
+# Flags needed when keymap bindings are mutated (rebind, reset, toggle, undo/redo)
+KEYMAP_MUTATION_FLAGS = (BINDING_FLAGS | DirtyFlag.OPERATOR_BOUND_OPS | DirtyFlag.DIFF)
+
 
 # ---------------------------------------------------------------------------
 # Addon package name (used for preferences lookup)

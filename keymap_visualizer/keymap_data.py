@@ -4,7 +4,7 @@ Keymap Visualizer – Keymap query, conflict detection, rebinding, search filter
 
 import bpy
 from . import state
-from .state import DirtyFlag
+from .state import DirtyFlag, KEYMAP_MUTATION_FLAGS
 from .constants import OPERATOR_ABBREVIATIONS, OPERATOR_CATEGORIES, OPERATOR_CATEGORY_ORDER, OPERATOR_CATEGORY_KEYMAPS
 
 
@@ -233,7 +233,7 @@ def _apply_rebind(kmi, new_type, new_ctrl, new_shift, new_alt, new_oskey):
     kmi.shift = new_shift
     kmi.alt = new_alt
     kmi.oskey = new_oskey
-    state._invalidate_cache()
+    state._invalidate_cache(KEYMAP_MUTATION_FLAGS)
 
 
 def _reset_kmi_to_default(kmi, km_name):
@@ -255,7 +255,7 @@ def _reset_kmi_to_default(kmi, km_name):
                 kmi.alt = default_kmi.alt
                 kmi.oskey = default_kmi.oskey
                 kmi.active = True
-                state._invalidate_cache()
+                state._invalidate_cache(KEYMAP_MUTATION_FLAGS)
                 return True
     return False
 
@@ -506,7 +506,7 @@ def _restore_kmi(kmi, snapshot):
     """Restore a KMI from a snapshot."""
     for attr, val in snapshot.items():
         setattr(kmi, attr, val)
-    state._invalidate_cache()
+    state._invalidate_cache(KEYMAP_MUTATION_FLAGS)
 
 
 def _push_undo(affected_kmis):
@@ -628,7 +628,7 @@ def _create_new_binding(op_id, key_type, ctrl, shift, alt, oskey):
     new_kmi = km.keymap_items.new(op_id, key_type, 'PRESS',
                                    ctrl=ctrl, shift=shift, alt=alt, oskey=oskey)
     _push_undo([new_kmi])
-    state._invalidate_cache()
+    state._invalidate_cache(KEYMAP_MUTATION_FLAGS | DirtyFlag.OPERATOR_LIST)
     return new_kmi
 
 
@@ -670,4 +670,4 @@ def _remove_all_bindings_for_op(op_id):
         _push_undo(matching)
         for kmi in matching:
             kmi.active = False
-        state._invalidate_cache()
+        state._invalidate_cache(KEYMAP_MUTATION_FLAGS)

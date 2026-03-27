@@ -239,6 +239,10 @@ def _compute_keyboard_layout(region_width, region_height):
     # C2: Build spatial index for keyboard navigation
     _compute_key_grid()
 
+    # Build spatial grid for O(1) hit testing
+    from .hit_testing import _build_spatial_grid
+    _build_spatial_grid()
+
 
 def _compute_key_grid():
     """Build row-based spatial index from _key_rects for arrow navigation."""
