@@ -881,7 +881,8 @@ def _build_preset_dropdown(button_rect, region_width, region_height):
 
 
 def _draw_filter_lists(ctx):
-    """Draw the Editor and Mode filter list panels below the keyboard (batched)."""
+    """Draw the Editor and Mode filter list panels below the keyboard (batched).
+    All geometry for both panels is collected first, flushed once, then text is drawn."""
     font_id = ctx.font_id
     colors = ctx.colors
     unit_px = ctx.unit_px
@@ -889,9 +890,12 @@ def _draw_filter_lists(ctx):
     shader_smooth = ctx.shader_smooth
     rb = ctx.rb
     lb = ctx.lb
+    ib = ctx.ib
     list_font_size = max(10, int(unit_px * 0.22))
     sp1, sp2, sp4, sp6 = s.sp1, s.sp2, s.sp4, s.sp6
 
+    # Phase 1: Collect ALL geometry for both panels
+    panels_data = []  # [(panel_rect, header_text, visible_items, has_scrollbar, scroll_info, content_top_y)]
     for panel_rect, item_rects, selected_set, hovered_idx, header_text, is_editor in [
         (state._filter_editor_list_rect, state._filter_editor_list_rects,
          state._filter_space_types, state._filter_editor_hovered, "Editors", True),
@@ -912,17 +916,9 @@ def _draw_filter_lists(ctx):
         header_h = max(16, unit_px * 0.35)
 
         if not item_rects:
-            rb.flush(shader_smooth)
-            lb.flush(shader_smooth)
-            blf.size(font_id, list_font_size)
-            blf.color(font_id, *colors['text_dim'])
-            no_items = "No matches"
-            tw_e, th_e = blf.dimensions(font_id, no_items)
-            blf.position(font_id, px + (pw - tw_e) / 2, py + ph / 2 - th_e / 2, 0)
-            blf.draw(font_id, no_items)
+            panels_data.append((panel_rect, header_text, [], False, None, 0, True))
             continue
 
-        # Pass 1: Batch all item rects + scrollbar
         content_top_y = py + ph - header_h
         item_h = max(20, unit_px * 0.5)
         total_content_h = len(item_rects) * item_h + header_h
@@ -956,11 +952,27 @@ def _draw_filter_lists(ctx):
             thumb_y = py + ph - thumb_h - scroll_ratio * (ph - thumb_h)
             rb.add(track_x, thumb_y, track_w, thumb_h, colors['text_dim'])
 
-        # Single flush for all rects + borders
-        rb.flush(shader_smooth)
-        lb.flush(shader_smooth)
+        panels_data.append((panel_rect, header_text, visible_items, has_scrollbar,
+                           (scroll_offset, max_scroll), content_top_y, False))
 
-        # Pass 2: Text + icons (after rects are on screen)
+    # ONE flush for ALL rects + borders across both panels
+    rb.flush(shader_smooth)
+    lb.flush(shader_smooth)
+
+    # Phase 2: Draw text + icons per panel (with scissor clips)
+    for panel_rect, header_text, visible_items, has_scrollbar, scroll_info, content_top_y, is_empty in panels_data:
+        px, py, pw, ph = panel_rect
+
+        if is_empty:
+            blf.size(font_id, list_font_size)
+            blf.color(font_id, *colors['text_dim'])
+            no_items = "No matches"
+            tw_e, th_e = blf.dimensions(font_id, no_items)
+            blf.position(font_id, px + (pw - tw_e) / 2, py + ph / 2 - th_e / 2, 0)
+            blf.draw(font_id, no_items)
+            continue
+
+        header_h = max(16, unit_px * 0.35)
         with _scissor_clip(px, py, pw, int(content_top_y - py)):
             if unit_px >= 20:
                 blf.size(font_id, list_font_size)
@@ -969,7 +981,6 @@ def _draw_filter_lists(ctx):
                 blf.position(font_id, px + (pw - tw) / 2, py + ph - list_font_size - sp2, 0)
                 blf.draw(font_id, header_text)
 
-                ib = ctx.ib
                 for dlabel, dvalue, dx, actual_y, dw, dh, is_ed in visible_items:
                     blf.color(font_id, *colors['text'])
                     icon_info = get_editor_icon(dvalue) if is_ed else get_mode_icon(dvalue)
@@ -985,6 +996,7 @@ def _draw_filter_lists(ctx):
                 ib.flush()
 
             if has_scrollbar:
+                scroll_offset, max_scroll = scroll_info
                 fade_h = sp6
                 fade_x2 = px + pw - s.track_w - sp2
                 if scroll_offset > 0:
@@ -1330,11 +1342,16 @@ def _draw_background_plate(ctx):
             outline_col = (colors['border'][0], colors['border'][1], colors['border'][2], 0.4)
             lb.add(mx1 - mp, my1 - mp, (mx2 - mx1) + 2 * mp, (my2 - my1) + 2 * mp, outline_col)
 
-    # Flush all background rects and borders
-    rb.flush(ctx.shader_smooth)
-    lb.flush(ctx.shader_smooth)
+    # Note: do NOT flush here — orchestrator will flush after toolbar geometry is also collected
+    # Return text drawing as a closure to be called after flush
+    return min_x, max_x, min_y, max_y
 
-    # Draw text elements that must come after the background
+
+def _draw_background_text(ctx):
+    """Draw background plate text elements (after global flush)."""
+    font_id = ctx.font_id
+    colors = ctx.colors
+    shader_uniform = ctx.shader_uniform
     if state._close_button_rect is not None:
         cbx, cby, cbw, cbh = state._close_button_rect
         if state._close_hovered:
@@ -1369,6 +1386,7 @@ def _draw_background_plate(ctx):
             line_batch.draw(shader_uniform)
 
     # Mouse block label
+    si = state._mouse_rects_start_index
     if si >= 0 and si < len(state._key_rects):
         mouse_keys = state._key_rects[si:]
         if mouse_keys:
@@ -1383,8 +1401,6 @@ def _draw_background_plate(ctx):
             lw, lh = blf.dimensions(font_id, "Mouse")
             blf.position(font_id, mx1 + ((mx2 - mx1) - lw) / 2, my2 + mp + 2, 0)
             blf.draw(font_id, "Mouse")
-
-    return min_x, max_x, min_y, max_y
 
 
 def _draw_key_shadows(ctx):
@@ -1735,10 +1751,42 @@ def _draw_toolbar(ctx, kb_bounds):
         rb.add(px, py, pw, ph, pr_col)
         lb.add(px, py, pw, ph, colors['border'])
 
+    # --- Diff mode badge geometry ---
+    badge_rect = None
+    if state._diff_mode_active:
+        diff_label = "DIFF"
+        blf.size(font_id, font_xs)
+        dtw, dth = blf.dimensions(font_id, diff_label)
+        badge_w = dtw + sp5 * 2
+        badge_h = dth + sp3 * 2
+        badge_x = max_x - badge_w - sp3
+        badge_y = max_y + pad + sp3
+        if state._export_button_rect:
+            fx, fy, fw, fh = state._export_button_rect
+            badge_y = max(badge_y, fy + fh + sp5)
+        rb.add(badge_x, badge_y, badge_w, badge_h, colors['export_button'])
+        lb.add(badge_x, badge_y, badge_w, badge_h, colors['border'])
+        badge_rect = (badge_x, badge_y, badge_w, badge_h)
+
+    # --- F3. Search bar geometry ---
+    search_rect = None
+    if state._search_active:
+        sb_w = min(300, rw * 0.4)
+        sb_h = unit_px * 0.7
+        sb_x = (rw - sb_w) / 2
+        sb_y = max_y + pad + sp3
+        if state._export_button_rect:
+            fx, fy, fw, fh = state._export_button_rect
+            sb_y = max(sb_y, fy + fh + sp5)
+        rb.add(sb_x, sb_y, sb_w, sb_h, colors['search_bg'])
+        lb.add(sb_x, sb_y, sb_w, sb_h, colors['search_border'])
+        search_rect = (sb_x, sb_y, sb_w, sb_h)
+
+    # ONE flush for ALL toolbar geometry (buttons + badge + search bar)
     rb.flush(ctx.shader_smooth)
     lb.flush(ctx.shader_smooth)
 
-    # --- Toolbar button labels ---
+    # --- All toolbar text (after flush) ---
     if state._export_button_rect is not None and unit_px >= 20:
         ex, ey, ew, eh = state._export_button_rect
         blf.size(font_id, font_sm)
@@ -1766,7 +1814,7 @@ def _draw_toolbar(ctx, kb_bounds):
         blf.position(font_id, px + (pw - tw) / 2, py + (ph - th) / 2, 0)
         blf.draw(font_id, plabel)
 
-    # --- v0.9 Feature 4: Undo/redo counter ---
+    # Undo/redo counter
     undo_count = len(state._undo_stack)
     redo_count = len(state._redo_stack)
     if (undo_count > 0 or redo_count > 0) and state._export_button_rect is not None:
@@ -1775,47 +1823,16 @@ def _draw_toolbar(ctx, kb_bounds):
         blf.size(font_id, font_xs)
         blf.color(font_id, *colors['text_dim'])
         tw, th = blf.dimensions(font_id, undo_text)
-        # Position below the export button
         blf.position(font_id, ex, ey - th - sp3, 0)
         blf.draw(font_id, undo_text)
 
-    # --- Diff mode badge ---
-    if state._diff_mode_active:
-        diff_label = "DIFF"
-        blf.size(font_id, font_xs)
-        dtw, dth = blf.dimensions(font_id, diff_label)
-        badge_w = dtw + sp5 * 2
-        badge_h = dth + sp3 * 2
-        badge_x = max_x - badge_w - sp3
-        badge_y = max_y + pad + sp3
-        if state._export_button_rect:
-            fx, fy, fw, fh = state._export_button_rect
-            badge_y = max(badge_y, fy + fh + sp5)
-        rb.add(badge_x, badge_y, badge_w, badge_h, colors['export_button'])
-        lb.add(badge_x, badge_y, badge_w, badge_h, colors['border'])
-        rb.flush(ctx.shader_smooth)
-        lb.flush(ctx.shader_smooth)
+    if badge_rect:
         blf.size(font_id, font_xs)
         blf.color(font_id, *colors['text'])
-        blf.position(font_id, badge_x + sp5, badge_y + sp3, 0)
-        blf.draw(font_id, diff_label)
+        blf.position(font_id, badge_rect[0] + sp5, badge_rect[1] + sp3, 0)
+        blf.draw(font_id, "DIFF")
 
-    # --- F3. Search bar (Phase 7) ---
-    if state._search_active:
-        sb_w = min(300, rw * 0.4)
-        sb_h = unit_px * 0.7
-        sb_x = (rw - sb_w) / 2
-        sb_y = max_y + pad + sp3
-        if state._export_button_rect:
-            fx, fy, fw, fh = state._export_button_rect
-            sb_y = max(sb_y, fy + fh + sp5)
-
-        rb.add(sb_x, sb_y, sb_w, sb_h, colors['search_bg'])
-        lb.add(sb_x, sb_y, sb_w, sb_h, colors['search_border'])
-        rb.flush(ctx.shader_smooth)
-        lb.flush(ctx.shader_smooth)
-
-        if unit_px >= 20:
+    if search_rect and unit_px >= 20:
             blf.size(font_id, font_base)
             blf.color(font_id, *colors['capture_text'])
             show_cursor = now % 1.0 > 0.5
@@ -2679,14 +2696,17 @@ def _draw_callback():
         prof.begin_frame()
         with prof("background_plate"):
             kb_bounds = _draw_background_plate(ctx)
+        with prof("toolbar"):
+            _draw_toolbar(ctx, kb_bounds)
+        # Flush bg + toolbar geometry together, then draw their text
+        with prof("bg_toolbar_text"):
+            _draw_background_text(ctx)
         with prof("key_shadows"):
             _draw_key_shadows(ctx)
         with prof("key_rectangles"):
             key_bg_colors = _draw_key_rectangles(ctx)
         with prof("key_labels"):
             _draw_key_labels(ctx, key_bg_colors)
-        with prof("toolbar"):
-            _draw_toolbar(ctx, kb_bounds)
         with prof("side_panels"):
             _draw_side_panels(ctx, kb_bounds)
         with prof("info_panel"):
