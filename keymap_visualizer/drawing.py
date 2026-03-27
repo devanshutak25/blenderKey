@@ -96,7 +96,8 @@ def _get_condensed_font():
 from .keymap_data import (
     _get_bindings_for_key, _get_all_bindings_for_key, _compute_bound_keys,
     _compute_key_labels, _compute_key_categories, _compute_key_editor_icons,
-    _compute_key_modifier_badges, _humanize_op_id, _group_bindings,
+    _compute_key_modifier_badges, _compute_key_hold_badges,
+    _humanize_op_id, _group_bindings,
     _get_operator_description, _compute_diff_keys,
 )
 from .icons import (
@@ -1125,6 +1126,27 @@ def _draw_background_plate(ctx):
             shader_uniform.uniform_float("color", colors['border'])
             lb.draw(shader_uniform)
 
+    # --- Mouse block outline ---
+    si = state._mouse_rects_start_index
+    if si >= 0 and si < len(state._key_rects):
+        mouse_keys = state._key_rects[si:]
+        if mouse_keys:
+            mx1 = min(k.x for k in mouse_keys)
+            mx2 = max(k.x + k.w for k in mouse_keys)
+            my1 = min(k.y for k in mouse_keys)
+            my2 = max(k.y + k.h for k in mouse_keys)
+            mp = ctx.s.sp3
+            outline_col = (colors['border'][0], colors['border'][1], colors['border'][2], 0.4)
+            _draw_rect_border(shader_uniform, mx1 - mp, my1 - mp,
+                              (mx2 - mx1) + 2 * mp, (my2 - my1) + 2 * mp, outline_col)
+            # Label above mouse block
+            label_size = max(9, int(ctx.unit_px * 0.2))
+            blf.size(font_id, label_size)
+            blf.color(font_id, *outline_col)
+            lw, lh = blf.dimensions(font_id, "Mouse")
+            blf.position(font_id, mx1 + ((mx2 - mx1) - lw) / 2, my2 + mp + 2, 0)
+            blf.draw(font_id, "Mouse")
+
     return min_x, max_x, min_y, max_y
 
 
@@ -1427,6 +1449,16 @@ def _draw_key_labels(ctx):
                 blf.position(font_id, badge_x, badge_y, 0)
                 blf.draw(font_id, badge_text)
                 blf.size(font_id, font_size)  # restore for next key
+
+            # Draw hold/drag badge (top-right, amber "D")
+            if kr.event_type in state._key_hold_badge_cache:
+                blf.size(font_id, badge_font_size)
+                hold_col = (0.85, 0.60, 0.35, 0.8)
+                blf.color(font_id, *hold_col)
+                dw, dh = blf.dimensions(font_id, "D")
+                blf.position(font_id, kr.x + kr.w - dw - sp2, kr.y + kr.h - dh - sp2, 0)
+                blf.draw(font_id, "D")
+                blf.size(font_id, font_size)
 
 
 def _draw_toolbar(ctx, kb_bounds):
@@ -2276,6 +2308,7 @@ def _draw_callback():
         _compute_key_categories()
         _compute_key_editor_icons()
         _compute_key_modifier_badges()
+        _compute_key_hold_badges()
         _compute_diff_keys()
 
         colors = _get_colors()

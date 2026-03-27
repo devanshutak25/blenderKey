@@ -6,7 +6,7 @@ import bpy
 from . import state
 from .state import DirtyFlag
 from .constants import KeyRect, SPACE_TYPE_FILTERS, MODE_FILTERS
-from .keyboards import get_resolved_rows
+from .keyboards import get_resolved_rows, MOUSE_ROWS, MOUSE_ALIGNMENT, MOUSE_WIDTH
 
 
 def _compute_keyboard_layout(region_width, region_height):
@@ -58,12 +58,16 @@ def _compute_keyboard_layout(region_width, region_height):
     numpad_gap = 1.0
     numpad_width = 4.0
 
+    # Mouse block gap
+    mouse_gap = 1.0
+
     # Calculate total width based on which sections are present
     total_width_units = main_width
     if nav_rows:
         total_width_units += nav_gap + nav_width
     if numpad_rows:
         total_width_units += numpad_gap + numpad_width
+    total_width_units += mouse_gap + MOUSE_WIDTH
 
     # Center the whole keyboard
     total_width_px = total_width_units * unit_px
@@ -126,6 +130,30 @@ def _compute_keyboard_layout(region_width, region_height):
                     h = unit_px - key_gap
                     state._key_rects.append(KeyRect(label, event_type, x, y, w, h))
                     x += width_u * unit_px
+
+    # --- Mouse block (right of everything else) ---
+    state._mouse_rects_start_index = len(state._key_rects)
+    # Find rightmost edge of existing keys
+    if state._key_rects:
+        existing_max_x = max(kr.x + kr.w for kr in state._key_rects)
+    else:
+        existing_max_x = start_x + main_width * unit_px
+    mouse_start_x = existing_max_x + mouse_gap * unit_px
+    for m_row_idx, m_row in enumerate(MOUSE_ROWS):
+        if m_row_idx >= len(MOUSE_ALIGNMENT):
+            break
+        main_row_idx = MOUSE_ALIGNMENT[m_row_idx]
+        y = start_y + main_row_idx * unit_px
+        x = mouse_start_x
+        for item in m_row:
+            if isinstance(item, (int, float)):
+                x += item * unit_px
+            else:
+                label, event_type, width_u = item
+                w = width_u * unit_px - key_gap
+                h = unit_px - key_gap
+                state._key_rects.append(KeyRect(label, event_type, x, y, w, h))
+                x += width_u * unit_px
 
     # --- Toolbar row above keyboard (Export + Import + Presets + Close, right-aligned) ---
     toolbar_y = start_y + len(main_rows) * unit_px + unit_px * 0.3

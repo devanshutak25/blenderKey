@@ -18,7 +18,8 @@ class DirtyFlag(IntFlag):
     OPERATOR_LIST = auto()
     OPERATOR_BOUND_OPS = auto()
     DIFF = auto()
-    ALL = BATCH | BOUND_KEYS | KEY_LABELS | KEY_CATEGORIES | KEY_EDITOR_ICONS | KEY_MODIFIER_BADGES | OPERATOR_LIST | OPERATOR_BOUND_OPS | DIFF
+    KEY_HOLD_BADGES = auto()
+    ALL = BATCH | BOUND_KEYS | KEY_LABELS | KEY_CATEGORIES | KEY_EDITOR_ICONS | KEY_MODIFIER_BADGES | OPERATOR_LIST | OPERATOR_BOUND_OPS | DIFF | KEY_HOLD_BADGES
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +55,7 @@ _hovered_key_index = -1
 _selected_key_index = -1
 _active_modifiers = {'ctrl': False, 'shift': False, 'alt': False, 'oskey': False}
 _modifier_rects = []               # list of (label, dict_key, x, y, w, h)
+_mouse_rects_start_index = -1      # index in _key_rects where mouse buttons begin
 _cached_bindings = []              # cached binding results
 _bindings_key = None               # (event_type, mod_tuple) used to cache
 _cached_all_bindings = ([], 0)     # cached all-bindings results for info panel
@@ -188,6 +190,9 @@ _tooltip_hover_start = 0.0  # time.monotonic() when hover began
 # Key modifier badge
 _key_modifier_badge_cache = {}   # {event_type: int} — count of additional modifier combos
 
+# Key hold/drag badge
+_key_hold_badge_cache = set()    # set of event_types with CLICK_DRAG bindings
+
 # Operator List panel
 _operator_list_rect = None              # (x, y, w, h) panel bounding box
 _operator_list_categories = {}          # {category: [(op_id, human_name), ...]} cached
@@ -238,7 +243,7 @@ def _reset_all_state():
     """Reset all mutable state to defaults. Callers handle draw handler removal,
     _set_running(), icon cleanup, and area redraws separately."""
     global _draw_handle, _target_area, _target_window, _launch_window
-    global _hovered_key_index, _selected_key_index, _cached_region_size
+    global _hovered_key_index, _selected_key_index, _cached_region_size, _mouse_rects_start_index
     global _cached_bindings, _bindings_key, _cached_all_bindings, _all_bindings_key
     global _modal_state, _conflict_hovered_button, _gpu_menu_hovered
     global _gpu_flyout_hovered, _flyout_hover_timer, _flyout_target_index, _flyout_pending_index
@@ -265,7 +270,7 @@ def _reset_all_state():
     global _filter_scroll_drag_target, _filter_scroll_drag_start_y, _filter_scroll_drag_start_offset
     global _info_panel_scroll, _info_panel_rect, _info_panel_max_scroll
     global _info_panel_expanded_groups, _info_panel_group_header_rects
-    global _key_modifier_badge_cache
+    global _key_modifier_badge_cache, _key_hold_badge_cache
     global _launch_retry_count
     global _nav_focus, _nav_key_index
     global _tooltip_text, _tooltip_hover_start
@@ -289,6 +294,7 @@ def _reset_all_state():
     _key_rects.clear()
     _cached_region_size = (0, 0)
     _modifier_rects.clear()
+    _mouse_rects_start_index = -1
     _active_modifiers.update({'ctrl': False, 'shift': False, 'alt': False, 'oskey': False})
     _cached_bindings.clear()
     _bindings_key = None
@@ -365,6 +371,7 @@ def _reset_all_state():
     _info_panel_expanded_groups = set()
     _info_panel_group_header_rects = []
     _key_modifier_badge_cache = {}
+    _key_hold_badge_cache = set()
     _nav_focus = 'KEYS'
     _nav_key_index = 0
     _key_row_map.clear()

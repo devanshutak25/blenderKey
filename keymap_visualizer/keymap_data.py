@@ -14,8 +14,17 @@ def _kmi_matches_modifiers(kmi, effective):
             kmi.alt == effective['alt'] and kmi.oskey == effective['oskey'])
 
 
+_VALUE_LABELS = {
+    'CLICK': 'Click',
+    'DOUBLE_CLICK': 'DblClick',
+    'CLICK_DRAG': 'Drag',
+    'RELEASE': 'Release',
+    'ANY': 'Any',
+}
+
+
 def _build_mod_string(kmi):
-    """Build a human-readable modifier string like 'Ctrl+Shift' from a KMI."""
+    """Build a human-readable modifier string like 'Ctrl+Shift+DblClick' from a KMI."""
     mod_parts = []
     if kmi.ctrl:
         mod_parts.append("Ctrl")
@@ -25,6 +34,9 @@ def _build_mod_string(kmi):
         mod_parts.append("Alt")
     if kmi.oskey:
         mod_parts.append("OS")
+    value_label = _VALUE_LABELS.get(kmi.value)
+    if value_label:
+        mod_parts.append(value_label)
     return "+".join(mod_parts) if mod_parts else ""
 
 
@@ -454,6 +466,27 @@ def _compute_key_modifier_badges():
         state._key_modifier_badge_cache[event_type] = len(combos)
 
     state._dirty_flags &= ~DirtyFlag.KEY_MODIFIER_BADGES
+
+
+def _compute_key_hold_badges():
+    """Compute set of event_types that have drag/hold bindings."""
+    if not (state._dirty_flags & DirtyFlag.KEY_HOLD_BADGES):
+        return
+    state._key_hold_badge_cache = set()
+    wm = bpy.context.window_manager
+    kc = wm.keyconfigs.user
+    if kc is None:
+        state._dirty_flags &= ~DirtyFlag.KEY_HOLD_BADGES
+        return
+    for km in kc.keymaps:
+        if not _km_passes_filter(km):
+            continue
+        for kmi in km.keymap_items:
+            if not kmi.active:
+                continue
+            if kmi.value == 'CLICK_DRAG':
+                state._key_hold_badge_cache.add(kmi.type)
+    state._dirty_flags &= ~DirtyFlag.KEY_HOLD_BADGES
 
 
 # ---------------------------------------------------------------------------

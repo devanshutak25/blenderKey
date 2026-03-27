@@ -854,3 +854,17 @@ def get_resolved_rows(form_factor='ANSI', logical='QWERTY', size='100'):
         numpad_alignment = []
 
     return main_rows, nav_rows, numpad_rows, nav_alignment, numpad_alignment
+
+
+# ---------------------------------------------------------------------------
+# Mouse layout (appended to the right of keyboard)
+# ---------------------------------------------------------------------------
+MOUSE_ROWS = [
+    [("Btn4", "BUTTON4MOUSE", 1.0), ("Btn5", "BUTTON5MOUSE", 1.0)],   # row 0 (side buttons)
+    [],                                                                   # row 1 (body gap)
+    [("W.Up", "WHEELUPMOUSE", 1.0), ("W.Dn", "WHEELDOWNMOUSE", 1.0)],  # row 2 (scroll)
+    [("MMB", "MIDDLEMOUSE", 2.0)],                                       # row 3 (middle click)
+    [("LMB", "LEFTMOUSE", 1.0), ("RMB", "RIGHTMOUSE", 1.0)],           # row 4 (primary)
+]
+MOUSE_ALIGNMENT = [0, 1, 2, 3, 4]
+MOUSE_WIDTH = 2.0
