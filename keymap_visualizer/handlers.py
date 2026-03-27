@@ -380,25 +380,6 @@ def _handle_idle(context, event):
             state._operator_list_hovered_item = new_op_item
             changed = True
 
-        # L4: Tooltip tracking
-        tooltip = ""
-        if new_export_hover:
-            tooltip = "Export keymap to file"
-        elif new_import_hover:
-            tooltip = "Import keymap from file"
-        elif new_presets_hover:
-            tooltip = "Save / load keymap presets"
-        elif new_close_hover:
-            tooltip = "Close visualizer (Esc)"
-        elif new_resize_hover:
-            tooltip = "Drag to resize"
-        if tooltip != state._tooltip_text:
-            state._tooltip_text = tooltip
-            state._tooltip_hover_start = time.monotonic()
-            changed = True
-        elif not tooltip:
-            state._tooltip_text = ""
-
         if changed:
             _tag_redraw()
         return {'RUNNING_MODAL'}

@@ -1922,24 +1922,6 @@ def _draw_side_panels(ctx, kb_bounds):
     with prof("  operator_list"):
         _draw_operator_list(ctx)
 
-    # --- L4: Tooltip rendering ---
-    if state._tooltip_text and (now - state._tooltip_hover_start) >= 0.3:
-        tip_font_size = font_xs
-        blf.size(font_id, tip_font_size)
-        blf.color(font_id, *colors['text'])
-        tw_tip, th_tip = blf.dimensions(font_id, state._tooltip_text)
-        tip_pad = sp3
-        tip_x = (rw - tw_tip) / 2 - tip_pad
-        tip_y = max_y + pad + sp3
-        if state._export_button_rect:
-            tip_y = max(tip_y, state._export_button_rect[1] + state._export_button_rect[3] + sp3)
-        rb = ctx.rb
-        rb.add(tip_x, tip_y, tw_tip + tip_pad * 2, th_tip + tip_pad * 2, colors['panel_bg'])
-        rb.flush(ctx.shader_smooth)
-        _draw_rect_border(shader_uniform, tip_x, tip_y, tw_tip + tip_pad * 2, th_tip + tip_pad * 2, colors['border'])
-        blf.position(font_id, tip_x + tip_pad, tip_y + tip_pad, 0)
-        blf.draw(font_id, state._tooltip_text)
-
     # --- v0.9 Feature 6: Preset dropdown ---
     if state._preset_dropdown_open and state._preset_dropdown_rects:
         rb = ctx.rb
@@ -2310,11 +2292,37 @@ def _draw_info_panel(ctx, kb_bounds):
             blf.draw(font_id, no_bind_text)
     else:
         state._info_panel_max_scroll = 0
-        blf.color(font_id, *colors['text_dim'])
-        help_text = "Hover a key to see bindings  \u00b7  Right-click to edit  \u00b7  / Search  \u00b7  ? Find by shortcut"
-        display_help, _, _ = _truncate_text(font_id, help_text, info_w - sp5 * 2)
-        blf.position(font_id, info_x + sp5, info_y + info_h / 2 - info_font_size / 2, 0)
-        blf.draw(font_id, display_help)
+
+        # Show button descriptions when hovering toolbar buttons
+        button_hint = None
+        if state._export_hovered:
+            button_hint = ("Export", "Save current keymap to a .py file. Configure the export path in Addon Preferences.")
+        elif state._import_hovered:
+            button_hint = ("Import", "Load a keymap from a .py file. Configure the import path in Addon Preferences.")
+        elif state._presets_hovered:
+            button_hint = ("Presets", "Save and load keymap presets. Presets are stored in the addon's presets folder.")
+        elif state._close_hovered:
+            button_hint = ("Close", "Close the keymap visualizer. You can also press Esc.")
+        elif state._resize_hovered:
+            button_hint = ("Resize", "Drag left or right to resize the visualizer.")
+
+        if button_hint:
+            title, desc = button_hint
+            blf.size(font_id, font_lg)
+            blf.color(font_id, *colors['text'])
+            blf.position(font_id, info_x + sp5, info_y + info_h - font_lg - sp3, 0)
+            blf.draw(font_id, title)
+            blf.size(font_id, info_font_size)
+            blf.color(font_id, *colors['text_dim'])
+            display_desc, _, _ = _truncate_text(font_id, desc, info_w - sp5 * 2)
+            blf.position(font_id, info_x + sp5, info_y + info_h - font_lg - sp3 - info_font_size - sp3, 0)
+            blf.draw(font_id, display_desc)
+        else:
+            blf.color(font_id, *colors['text_dim'])
+            help_text = "Hover a key to see bindings  \u00b7  Right-click to edit  \u00b7  / Search  \u00b7  ? Find by shortcut"
+            display_help, _, _ = _truncate_text(font_id, help_text, info_w - sp5 * 2)
+            blf.position(font_id, info_x + sp5, info_y + info_h / 2 - info_font_size / 2, 0)
+            blf.draw(font_id, display_help)
 
 
 def _draw_capture_overlay(ctx, kb_bounds):
