@@ -284,3 +284,34 @@ MODE_FILTERS = [
     ('Grease Pencil', "Grease Pencil"),
     ('Curves', "Curves"),
 ]
+
+# ---------------------------------------------------------------------------
+# Modal shortcuts — key combos handled inside modal operators, not in keyconfig.
+# These can't be detected from bpy.context.window_manager.keyconfigs.
+# Format: {event_type: [(sequence_label, description), ...]}
+# ---------------------------------------------------------------------------
+MODAL_SHORTCUTS = {
+    'G': [
+        ("G G", "Edge Slide (in Edit Mode)"),
+    ],
+    'S': [
+        ("S S", "Scale along normals / Shrink-Fatten (in Edit Mode)"),
+    ],
+    'R': [
+        ("R R", "Trackball rotation"),
+    ],
+    'X': [
+        ("X X", "Dissolve (in Edit Mode)"),
+    ],
+    'E': [
+        ("E S", "Extrude along normals (in Edit Mode)"),
+    ],
+    'LEFTMOUSE': [
+        ("LMB Drag", "Box Select / Transform confirm drag"),
+    ],
+    'MIDDLEMOUSE': [
+        ("MMB Drag", "Orbit viewport (in 3D View)"),
+        ("Shift+MMB", "Pan viewport"),
+        ("Ctrl+MMB", "Zoom viewport"),
+    ],
+}

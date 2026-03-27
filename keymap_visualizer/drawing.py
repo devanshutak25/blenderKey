@@ -33,6 +33,7 @@ from .constants import (
     OPERATOR_CATEGORY_ORDER,
     BASE_ACCENT, BASE_BACKGROUND, BASE_SURFACE, BASE_TEXT,
     BASE_SUCCESS, BASE_WARNING, BASE_DANGER, BASE_INFO,
+    MODAL_SHORTCUTS,
 )
 
 # ---------------------------------------------------------------------------
@@ -2109,6 +2110,9 @@ def _draw_info_panel(ctx, kb_bounds):
             visible_h = content_top - content_bottom
             max_visible_rows = max(1, int(visible_h / line_h))
 
+            # Modal shortcuts for this key
+            modal_hints = MODAL_SHORTCUTS.get(kr.event_type, [])
+
             # Count total visible rows (depends on expand state)
             total_rows = 0
             for group_key, human_name, mod_str, entries, best_rank in groups:
@@ -2117,6 +2121,9 @@ def _draw_info_panel(ctx, kb_bounds):
                     if group_key in _group_descs:
                         total_rows += 1  # description row
                     total_rows += len(entries)  # sub-rows
+            if modal_hints:
+                total_rows += 1  # "Modal shortcuts" header
+                total_rows += len(modal_hints)
 
             info_max_scroll = max(0, (total_rows * line_h) - visible_h)
             state._info_panel_max_scroll = info_max_scroll
@@ -2265,6 +2272,30 @@ def _draw_info_panel(ctx, kb_bounds):
 
                                 blf.position(font_id, sub_x, ly_sub, 0)
                                 blf.draw(font_id, display_sub)
+
+                # Modal shortcuts section (not in keyconfig, hardcoded reference)
+                if modal_hints:
+                    # Section header
+                    ly = content_top - (row + 1) * line_h + scroll_offset
+                    row += 1
+                    if ly <= content_top and ly + line_h >= content_bottom:
+                        blf.color(font_id, *colors['text_dim'])
+                        blf.position(font_id, cx, ly, 0)
+                        blf.draw(font_id, "\u2500 Modal shortcuts \u2500")
+                    # Modal hint rows
+                    for seq_label, hint_desc in modal_hints:
+                        ly = content_top - (row + 1) * line_h + scroll_offset
+                        row += 1
+                        if ly <= content_top and ly + line_h >= content_bottom:
+                            blf.color(font_id, *colors['text'])
+                            seq_display = f"{seq_label}"
+                            blf.position(font_id, cx, ly, 0)
+                            blf.draw(font_id, seq_display)
+                            seq_w, _ = blf.dimensions(font_id, seq_display)
+                            blf.color(font_id, *colors['text_dim'])
+                            desc_display, _, _ = _truncate_text(font_id, f"  {hint_desc}", avail_text_w - seq_w)
+                            blf.position(font_id, cx + seq_w, ly, 0)
+                            blf.draw(font_id, desc_display)
 
                 # Scrollbar (Issue #3)
                 if has_scrollbar:

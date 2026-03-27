@@ -101,7 +101,8 @@
       "Bash(python -m py_compile keymap_visualizer/hit_testing.py)",
       "Bash(python -m py_compile keymap_visualizer/profiler.py)",
       "Bash(python -c \":*)",
-      "Bash(python -m py_compile keymap_visualizer/icons.py)"
+      "Bash(python -m py_compile keymap_visualizer/icons.py)",
+      "Bash(python -m py_compile keymap_visualizer/constants.py)"
     ]
   }
 }
