@@ -843,15 +843,17 @@ def _build_preset_dropdown(button_rect, region_width, region_height):
         state._preset_dropdown_rects.append((label, action, dropdown_x, iy, item_w, item_h))
 
 
-def _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_px, colors, s=None):
-    """Draw the Editor and Mode filter list panels below the keyboard."""
+def _draw_filter_lists(ctx):
+    """Draw the Editor and Mode filter list panels below the keyboard (batched)."""
+    font_id = ctx.font_id
+    colors = ctx.colors
+    unit_px = ctx.unit_px
+    s = ctx.s
+    shader_smooth = ctx.shader_smooth
+    rb = ctx.rb
+    lb = ctx.lb
     list_font_size = max(10, int(unit_px * 0.22))
-    if s is None:
-        s = _compute_spacing(unit_px)
-    sp1 = s.sp1
-    sp2 = s.sp2
-    sp4 = s.sp4
-    sp6 = s.sp6
+    sp1, sp2, sp4, sp6 = s.sp1, s.sp2, s.sp4, s.sp6
 
     for panel_rect, item_rects, selected_set, hovered_idx, header_text, is_editor in [
         (state._filter_editor_list_rect, state._filter_editor_list_rects,
@@ -864,20 +866,17 @@ def _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_p
         px, py, pw, ph = panel_rect
         scroll_offset = state._filter_editor_scroll if is_editor else state._filter_mode_scroll
         soft_border = (colors['border'][0], colors['border'][1], colors['border'][2], colors['border'][3] * 0.5)
-        _draw_panel(shader_uniform, px, py, pw, ph, colors['panel_bg'], soft_border)
+        rb.add(px, py, pw, ph, colors['panel_bg'])
+        lb.add(px, py, pw, ph, soft_border)
 
         if (is_editor and state._nav_focus == 'EDITOR_LIST') or (not is_editor and state._nav_focus == 'MODE_LIST'):
-            _draw_rect_border(shader_uniform, px, py, pw, ph, colors['border_highlight'])
+            lb.add(px, py, pw, ph, colors['border_highlight'])
 
         header_h = max(16, unit_px * 0.35)
-        if unit_px >= 20:
-            blf.size(font_id, list_font_size)
-            blf.color(font_id, *colors['text'])
-            tw, th = blf.dimensions(font_id, header_text)
-            blf.position(font_id, px + (pw - tw) / 2, py + ph - list_font_size - sp2, 0)
-            blf.draw(font_id, header_text)
 
         if not item_rects:
+            rb.flush(shader_smooth)
+            lb.flush(shader_smooth)
             blf.size(font_id, list_font_size)
             blf.color(font_id, *colors['text_dim'])
             no_items = "No matches"
@@ -886,34 +885,56 @@ def _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_p
             blf.draw(font_id, no_items)
             continue
 
+        # Pass 1: Batch all item rects + scrollbar
         content_top_y = py + ph - header_h
+        item_h = max(20, unit_px * 0.5)
+        total_content_h = len(item_rects) * item_h + header_h
+        has_scrollbar = total_content_h > ph
+        max_scroll = (total_content_h - ph) if has_scrollbar else 0
+
+        visible_items = []
+        for di, (dlabel, dvalue, dx, dy, dw, dh) in enumerate(item_rects):
+            actual_y = dy + scroll_offset
+            if actual_y + dh <= py or actual_y >= content_top_y:
+                continue
+            is_selected = dvalue in selected_set
+            is_hovered = (di == hovered_idx)
+            if is_hovered:
+                dcol = colors['menu_hover']
+            elif is_selected:
+                dcol = colors['active_highlight']
+            else:
+                dcol = colors['panel_bg']
+            rb.add(dx, actual_y, dw, dh, dcol)
+            visible_items.append((dlabel, dvalue, dx, actual_y, dw, dh, is_editor))
+
+        if has_scrollbar:
+            track_w = s.track_w
+            track_x = px + pw - track_w - sp1
+            track_color = _lerp_color(colors['panel_bg'], colors['border'], 0.3)
+            rb.add(track_x, py, track_w, ph, track_color)
+            visible_ratio = ph / total_content_h
+            thumb_h = max(15, ph * visible_ratio)
+            scroll_ratio = scroll_offset / max_scroll if max_scroll > 0 else 0
+            thumb_y = py + ph - thumb_h - scroll_ratio * (ph - thumb_h)
+            rb.add(track_x, thumb_y, track_w, thumb_h, colors['text_dim'])
+
+        # Single flush for all rects + borders
+        rb.flush(shader_smooth)
+        lb.flush(shader_smooth)
+
+        # Pass 2: Text + icons (after rects are on screen)
         with _scissor_clip(px, py, pw, int(content_top_y - py)):
-            item_h = max(20, unit_px * 0.5)
-            # Set font size ONCE before item loop
             if unit_px >= 20:
                 blf.size(font_id, list_font_size)
-            for di, (dlabel, dvalue, dx, dy, dw, dh) in enumerate(item_rects):
-                actual_y = dy + scroll_offset
-                if actual_y + dh <= py or actual_y >= py + ph - header_h:
-                    continue
+                blf.color(font_id, *colors['text'])
+                tw, th = blf.dimensions(font_id, header_text)
+                blf.position(font_id, px + (pw - tw) / 2, py + ph - list_font_size - sp2, 0)
+                blf.draw(font_id, header_text)
 
-                is_selected = dvalue in selected_set
-                is_hovered = (di == hovered_idx)
-
-                if is_hovered:
-                    dcol = colors['menu_hover']
-                elif is_selected:
-                    dcol = colors['active_highlight']
-                else:
-                    dcol = colors['panel_bg']
-                _draw_rect(shader_uniform, dx, actual_y, dw, dh, dcol)
-
-                if unit_px >= 20:
+                for dlabel, dvalue, dx, actual_y, dw, dh, is_ed in visible_items:
                     blf.color(font_id, *colors['text'])
-                    if is_editor:
-                        icon_tex = get_editor_icon(dvalue)
-                    else:
-                        icon_tex = get_mode_icon(dvalue)
+                    icon_tex = get_editor_icon(dvalue) if is_ed else get_mode_icon(dvalue)
                     icon_size = int(dh * 0.65)
                     icon_x = dx + sp2
                     icon_y = actual_y + (dh - icon_size) / 2
@@ -924,30 +945,21 @@ def _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_p
                     blf.position(font_id, text_x, actual_y + (dh - th) / 2, 0)
                     blf.draw(font_id, display)
 
-            total_content_h = len(item_rects) * item_h + header_h
-            if total_content_h > ph:
-                max_scroll = total_content_h - ph
-                track_w = s.track_w
-                track_x = px + pw - track_w - sp1
-                _draw_scrollbar(shader_uniform, track_x, py, ph, scroll_offset, max_scroll, total_content_h, ph,
-                                track_w=track_w, track_color=_lerp_color(colors['panel_bg'], colors['border'], 0.3),
-                                thumb_color=colors['text_dim'])
-
+            if has_scrollbar:
                 fade_h = sp6
-                fade_x2 = px + pw - track_w - sp2
+                fade_x2 = px + pw - s.track_w - sp2
                 if scroll_offset > 0:
                     _draw_fade_gradient(shader_smooth, px, fade_x2,
-                                        py + ph - header_h - fade_h, fade_h, colors['panel_bg'], 'DOWN')
+                                        content_top_y - fade_h, fade_h, colors['panel_bg'], 'DOWN')
                 if scroll_offset < max_scroll:
                     _draw_fade_gradient(shader_smooth, px, fade_x2,
                                         py, fade_h, colors['panel_bg'], 'UP')
 
 
-def _draw_operator_list(shader_uniform, shader_smooth, font_id, font_size, unit_px, colors, s=None):
-    """Draw the Operators accordion panel below the keyboard."""
+def _draw_operator_list(ctx):
+    """Draw the Operators accordion panel below the keyboard (batched)."""
     from .keymap_data import _collect_all_operators, _compute_bound_operators
 
-    # Lazy init
     if state._dirty_flags & DirtyFlag.OPERATOR_LIST:
         _collect_all_operators()
     _compute_bound_operators()
@@ -958,8 +970,14 @@ def _draw_operator_list(shader_uniform, shader_smooth, font_id, font_size, unit_
 
     px, py, pw, ph = panel_rect
 
-    if s is None:
-        s = _compute_spacing(unit_px)
+    shader_uniform = ctx.shader_uniform
+    shader_smooth = ctx.shader_smooth
+    font_id = ctx.font_id
+    colors = ctx.colors
+    unit_px = ctx.unit_px
+    s = ctx.s
+    rb = ctx.rb
+    lb = ctx.lb
     list_font_size = max(10, int(unit_px * 0.22))
     sp1 = s.sp1
     sp2 = s.sp2
@@ -967,13 +985,13 @@ def _draw_operator_list(shader_uniform, shader_smooth, font_id, font_size, unit_
     sp4 = s.sp4
     sp5 = s.sp5
 
-    # Panel background (softened border)
+    # Panel background (softened border) — batched
     soft_border = (colors['border'][0], colors['border'][1], colors['border'][2], colors['border'][3] * 0.5)
-    _draw_panel(shader_uniform, px, py, pw, ph, colors['panel_bg'], soft_border)
+    rb.add(px, py, pw, ph, colors['panel_bg'])
+    lb.add(px, py, pw, ph, soft_border)
 
-    # Focus indicator
     if state._nav_focus == 'OPERATOR_LIST':
-        _draw_rect_border(shader_uniform, px, py, pw, ph, colors['border_highlight'])
+        lb.add(px, py, pw, ph, colors['border_highlight'])
 
     header_h = max(16, unit_px * 0.35)
     search_h = s.item_h
@@ -981,38 +999,15 @@ def _draw_operator_list(shader_uniform, shader_smooth, font_id, font_size, unit_
     group_h = s.item_h
     indent = sp5
 
-    # Header: "Operators"
-    if unit_px >= 20:
-        blf.size(font_id, list_font_size)
-        blf.color(font_id, *colors['text'])
-        hdr = "Operators"
-        tw, th = blf.dimensions(font_id, hdr)
-        blf.position(font_id, px + (pw - tw) / 2, py + ph - list_font_size - sp2, 0)
-        blf.draw(font_id, hdr)
-
-    # Search box
+    # Search box — batched
     search_y = py + ph - header_h - search_h - sp1
     search_x = px + sp2
     search_w = pw - sp2 * 2
     inactive_search_bg = (colors['search_bg'][0], colors['search_bg'][1], colors['search_bg'][2], 0.7)
     search_bg = colors['search_bg'] if state._operator_list_search_active else inactive_search_bg
-    _draw_rect(shader_uniform, search_x, search_y, search_w, search_h, search_bg)
-    _draw_rect_border(shader_uniform, search_x, search_y, search_w, search_h,
-                      colors['search_border'] if state._operator_list_search_active else colors['border'])
-
-    if unit_px >= 20:
-        blf.size(font_id, max(9, int(unit_px * 0.18)))
-        if state._operator_list_search_active or state._operator_list_search_text:
-            blf.color(font_id, *colors['capture_text'])
-            show_cursor = time.monotonic() % 1.0 > 0.5
-            cursor = "|" if show_cursor else " "
-            display = state._operator_list_search_text + cursor
-        else:
-            blf.color(font_id, *colors['text_dim'])
-            display = "Search operators\u2026"
-        stw, sth = blf.dimensions(font_id, display)
-        blf.position(font_id, search_x + sp3, search_y + (search_h - sth) / 2, 0)
-        blf.draw(font_id, display)
+    rb.add(search_x, search_y, search_w, search_h, search_bg)
+    lb.add(search_x, search_y, search_w, search_h,
+           colors['search_border'] if state._operator_list_search_active else colors['border'])
 
     # Content area
     content_top = search_y - sp1
@@ -1052,76 +1047,117 @@ def _draw_operator_list(shader_uniform, shader_smooth, font_id, font_size, unit_
     item_font_size = max(9, int(unit_px * 0.18))
     dot_size = max(4, int(unit_px * 0.08))
 
-    with _scissor_clip(px, int(content_bottom), pw, int(content_h)):
-        cursor_y = content_top
+    # Pass 1: Collect all rects + build text draw list
+    cursor_y = content_top
+    cat_text_draws = []   # (cat_text, cat_text_color, gy, group_h)
+    item_text_draws = []  # (human_name, text_x, iy, item_h)
+
+    for category, ops, is_expanded in filtered_cats:
+        gy = cursor_y - group_h + scroll_offset
+        if content_bottom <= gy + group_h and gy <= content_top:
+            cat_bg_color = CATEGORY_COLORS.get(category, colors['text_dim'])
+            cat_text_color = CATEGORY_TEXT_COLORS.get(category, colors['text_dim'])
+            rb.add(px + sp1, gy, sp2, group_h, cat_bg_color)
+
+            group_idx = len(state._operator_list_group_rects)
+            if group_idx == state._operator_list_hovered_group:
+                rb.add(px + sp3, gy, pw - sp3 * 2, group_h, colors['menu_hover'])
+
+            if unit_px >= 20:
+                arrow = "\u25BE" if is_expanded else "\u25B8"
+                cat_text = f"{arrow} {category} ({len(ops)})"
+                cat_text_draws.append((cat_text, cat_text_color, gy, group_h))
+
+        state._operator_list_group_rects.append((category, px, cursor_y - group_h, pw, group_h))
+        cursor_y -= group_h
+
+        if is_expanded:
+            for op_id, human_name in ops:
+                iy = cursor_y - item_h + scroll_offset
+                if content_bottom <= iy + item_h and iy <= content_top:
+                    item_idx = len(state._operator_list_item_rects)
+                    if item_idx == state._operator_list_hovered_item:
+                        rb.add(px + indent, iy, pw - indent - sp2, item_h, colors['menu_hover'])
+
+                    if unit_px >= 20:
+                        is_bound = op_id in state._operator_list_bound_ops
+                        if is_bound:
+                            dot_x = px + indent
+                            dot_y = iy + (item_h - dot_size) / 2
+                            rb.add(dot_x, dot_y, dot_size, dot_size, colors['active_highlight'])
+                            text_x = dot_x + dot_size + sp2
+                        else:
+                            text_x = px + indent + dot_size + sp2
+                        item_text_draws.append((human_name, text_x, iy, item_h))
+
+                state._operator_list_item_rects.append((op_id, human_name, px + indent, cursor_y - item_h, pw - indent - sp2, item_h))
+                cursor_y -= item_h
+
+    # Scrollbar rects (batched)
+    has_scrollbar = max_scroll > 0 and total_h > 0
+    if has_scrollbar:
+        track_w = s.track_w
+        track_x = px + pw - track_w - sp1
+        track_color = _lerp_color(colors['panel_bg'], colors['border'], 0.3)
+        rb.add(track_x, int(content_bottom), track_w, content_h, track_color)
+        visible_ratio = content_h / total_h
+        thumb_h = max(15, content_h * visible_ratio)
+        scroll_ratio = scroll_offset / max_scroll if max_scroll > 0 else 0
+        thumb_y = int(content_bottom) + content_h - thumb_h - scroll_ratio * (content_h - thumb_h)
+        rb.add(track_x, thumb_y, track_w, thumb_h, colors['text_dim'])
+
+    # Single flush for ALL rects + borders
+    rb.flush(shader_smooth)
+    lb.flush(shader_smooth)
+
+    # Header text (outside scissor — above content area)
+    if unit_px >= 20:
         blf.size(font_id, list_font_size)
+        blf.color(font_id, *colors['text'])
+        hdr = "Operators"
+        tw, th = blf.dimensions(font_id, hdr)
+        blf.position(font_id, px + (pw - tw) / 2, py + ph - list_font_size - sp2, 0)
+        blf.draw(font_id, hdr)
 
-        for category, ops, is_expanded in filtered_cats:
-            # Draw category header
-            gy = cursor_y - group_h + scroll_offset
-            if content_bottom <= gy + group_h and gy <= content_top:
-                cat_bg_color = CATEGORY_COLORS.get(category, colors['text_dim'])
-                cat_text_color = CATEGORY_TEXT_COLORS.get(category, colors['text_dim'])
-                _draw_rect(shader_uniform, px + sp1, gy, sp2, group_h, cat_bg_color)
+    # Search box text (outside scissor)
+    if unit_px >= 20:
+        blf.size(font_id, item_font_size)
+        if state._operator_list_search_active or state._operator_list_search_text:
+            blf.color(font_id, *colors['capture_text'])
+            show_cursor = time.monotonic() % 1.0 > 0.5
+            cursor = "|" if show_cursor else " "
+            display = state._operator_list_search_text + cursor
+        else:
+            blf.color(font_id, *colors['text_dim'])
+            display = "Search operators\u2026"
+        stw, sth = blf.dimensions(font_id, display)
+        blf.position(font_id, search_x + sp3, search_y + (search_h - sth) / 2, 0)
+        blf.draw(font_id, display)
 
-                group_idx = len(state._operator_list_group_rects)
-                if group_idx == state._operator_list_hovered_group:
-                    _draw_rect(shader_uniform, px + sp3, gy, pw - sp3 * 2, group_h, colors['menu_hover'])
+    # Pass 2: Draw text (inside scissor clip)
+    with _scissor_clip(px, int(content_bottom), pw, int(content_h)):
+        # Category header text
+        if cat_text_draws:
+            blf.size(font_id, list_font_size)
+            avail_w = pw - sp4 * 2
+            for cat_text, cat_text_color, gy, gh in cat_text_draws:
+                blf.color(font_id, *cat_text_color)
+                display_cat, tw_cat, th_cat = _truncate_text(font_id, cat_text, avail_w)
+                blf.position(font_id, px + sp4, gy + (gh - th_cat) / 2, 0)
+                blf.draw(font_id, display_cat)
 
-                if unit_px >= 20:
-                    blf.size(font_id, list_font_size)
-                    blf.color(font_id, *cat_text_color)
-                    arrow = "\u25BE" if is_expanded else "\u25B8"
-                    count_str = f" ({len(ops)})"
-                    cat_text = f"{arrow} {category}{count_str}"
-                    avail_w = pw - sp4 * 2
-                    display_cat, tw_cat, th_cat = _truncate_text(font_id, cat_text, avail_w)
-                    blf.position(font_id, px + sp4, gy + (group_h - th_cat) / 2, 0)
-                    blf.draw(font_id, display_cat)
+        # Item text
+        if item_text_draws:
+            blf.size(font_id, item_font_size)
+            blf.color(font_id, *colors['text'])
+            for human_name, text_x, iy, ih in item_text_draws:
+                avail_w = pw - (text_x - px) - sp2
+                display_name, tw_n, th_n = _truncate_text(font_id, human_name, avail_w)
+                blf.position(font_id, text_x, iy + (ih - th_n) / 2, 0)
+                blf.draw(font_id, display_name)
 
-            state._operator_list_group_rects.append((category, px, cursor_y - group_h, pw, group_h))
-            cursor_y -= group_h
-
-            if is_expanded:
-                # Set item font size once per expanded category
-                if unit_px >= 20:
-                    blf.size(font_id, item_font_size)
-                for op_id, human_name in ops:
-                    iy = cursor_y - item_h + scroll_offset
-                    if content_bottom <= iy + item_h and iy <= content_top:
-                        item_idx = len(state._operator_list_item_rects)
-                        if item_idx == state._operator_list_hovered_item:
-                            _draw_rect(shader_uniform, px + indent, iy, pw - indent - sp2, item_h, colors['menu_hover'])
-
-                        if unit_px >= 20:
-                            is_bound = op_id in state._operator_list_bound_ops
-                            if is_bound:
-                                dot_x = px + indent
-                                dot_y = iy + (item_h - dot_size) / 2
-                                _draw_rect(shader_uniform, dot_x, dot_y, dot_size, dot_size, colors['active_highlight'])
-                                text_x = dot_x + dot_size + sp2
-                            else:
-                                text_x = px + indent + dot_size + sp2
-
-                            blf.color(font_id, *colors['text'])
-                            avail_w = pw - (text_x - px) - sp2
-                            display_name, tw_n, th_n = _truncate_text(font_id, human_name, avail_w)
-                            blf.position(font_id, text_x, iy + (item_h - th_n) / 2, 0)
-                            blf.draw(font_id, display_name)
-
-                    state._operator_list_item_rects.append((op_id, human_name, px + indent, cursor_y - item_h, pw - indent - sp2, item_h))
-                    cursor_y -= item_h
-
-        # Scrollbar
-        if max_scroll > 0 and total_h > 0:
-            track_w = s.track_w
-            track_x = px + pw - track_w - sp1
-            _draw_scrollbar(shader_uniform, track_x, int(content_bottom), content_h,
-                            scroll_offset, max_scroll, total_h, content_h,
-                            track_w=track_w, track_color=_lerp_color(colors['panel_bg'], colors['border'], 0.3),
-                            thumb_color=colors['text_dim'])
-
-            # Fade gradients
+        # Fade gradients
+        if has_scrollbar:
             fade_h = s.sp6
             fade_x2 = px + pw - track_w - sp2
             if scroll_offset > 0:
@@ -1815,11 +1851,11 @@ def _draw_side_panels(ctx, kb_bounds):
 
     # --- Feature 4: Editor/Mode filter list panels (softened border) ---
     with prof("  filter_lists"):
-        _draw_filter_lists(shader_uniform, shader_smooth, font_id, font_size, unit_px, colors, s)
+        _draw_filter_lists(ctx)
 
     # --- Operator List panel ---
     with prof("  operator_list"):
-        _draw_operator_list(shader_uniform, shader_smooth, font_id, font_size, unit_px, colors, s)
+        _draw_operator_list(ctx)
 
     # --- L4: Tooltip rendering ---
     if state._tooltip_text and (now - state._tooltip_hover_start) >= 0.5:
@@ -1938,24 +1974,39 @@ def _draw_info_panel(ctx, kb_bounds):
     info_h = unit_px * 3.2
     info_y = min_y - pad - info_h - sp3
 
-    # Panel background + border -- info panel uses brighter bg
-    _draw_panel(shader_uniform, info_x, info_y, info_w, info_h, colors['info_panel_bg'], colors['border'])
+    # Panel background + border -- info panel uses brighter bg (batched)
+    rb = ctx.rb
+    lb = ctx.lb
+    rb.add(info_x, info_y, info_w, info_h, colors['info_panel_bg'])
+    lb.add(info_x, info_y, info_w, info_h, colors['border'])
 
-    # C2: Focus indicator for info panel
     if state._nav_focus == 'INFO_PANEL':
-        _draw_rect_border(shader_uniform, info_x, info_y, info_w, info_h, colors['border_highlight'])
+        lb.add(info_x, info_y, info_w, info_h, colors['border_highlight'])
 
     # Store rect for hit testing (Issue #3)
     state._info_panel_rect = (info_x, info_y, info_w, info_h)
 
     active_idx = state._selected_key_index if state._selected_key_index >= 0 else state._hovered_key_index
     info_font_size = font_base
+
+    if 0 <= active_idx < len(state._key_rects):
+        rb.add(info_x, info_y, 2, info_h, colors['key_selected'])
+
+        kr = state._key_rects[active_idx]
+
+        # Add separator line to batch
+        header_font_size = font_lg
+        header_y_pre = info_y + info_h - header_font_size - sp3
+        sep_y_pre = header_y_pre - sp3
+        rb.add(info_x + sp3, sep_y_pre, info_w - sp3 * 2, 1, colors['border'])
+
+    # Flush all info panel rects before text
+    rb.flush(shader_smooth)
+    lb.flush(shader_smooth)
+
     blf.size(font_id, info_font_size)
 
     if 0 <= active_idx < len(state._key_rects):
-        # Draw accent strip on left edge when a key is active
-        _draw_rect(shader_uniform, info_x, info_y, 2, info_h, colors['key_selected'])
-
         kr = state._key_rects[active_idx]
         bindings, n_matching = _get_all_bindings_for_key(kr.event_type)
 
@@ -1982,9 +2033,7 @@ def _draw_info_panel(ctx, kb_bounds):
             blf.position(font_id, header_x + tw_label + sp5, header_y, 0)
             blf.draw(font_id, filter_summary_text)
 
-        # Separator line below header (Issue #5, #8)
         sep_y = header_y - sp3
-        _draw_rect(shader_uniform, info_x + sp3, sep_y, info_w - sp3 * 2, 1, colors['border'])
 
         blf.size(font_id, info_font_size)
 
