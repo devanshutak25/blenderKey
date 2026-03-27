@@ -852,7 +852,6 @@ def _build_preset_dropdown(button_rect, region_width, region_height):
         _upx = 40
     _s = _compute_spacing(_upx)
     item_h = _s.item_h_sm
-    item_w = max(bw, max(180, int(_upx * 2.0)))
     padding = _s.sp1
 
     # Build items: presets + Save As + Delete
@@ -865,6 +864,16 @@ def _build_preset_dropdown(button_rect, region_width, region_height):
     if state._active_preset_name:
         items.append(("Copy to Clipboard", "COPY_CLIPBOARD"))
     items.append(("Paste from Clipboard", "PASTE_CLIPBOARD"))
+
+    # Measure actual text widths to size dropdown correctly
+    font_id = _ensure_font_loaded()
+    dropdown_font_size = max(11, int(_upx * 0.3))
+    blf.size(font_id, dropdown_font_size)
+    max_text_w = 0
+    for label, _ in items:
+        tw, _ = blf.dimensions(font_id, label)
+        max_text_w = max(max_text_w, tw)
+    item_w = max(bw, int(max_text_w + _s.sp5 * 2 + _s.sp3))
 
     dropdown_x = bx
     dropdown_y = by - len(items) * (item_h + padding) - padding
@@ -1914,7 +1923,7 @@ def _draw_side_panels(ctx, kb_bounds):
         _draw_operator_list(ctx)
 
     # --- L4: Tooltip rendering ---
-    if state._tooltip_text and (now - state._tooltip_hover_start) >= 0.5:
+    if state._tooltip_text and (now - state._tooltip_hover_start) >= 0.3:
         tip_font_size = font_xs
         blf.size(font_id, tip_font_size)
         blf.color(font_id, *colors['text'])
