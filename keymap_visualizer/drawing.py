@@ -451,23 +451,60 @@ def _get_shader_image():
     return _shader_image
 
 
-# Pre-built icon geometry (same for all icons, just different position/size)
-_icon_texcoords = ((0, 0), (1, 0), (1, 1), (0, 1))
-_icon_indices = ((0, 1, 2), (0, 2, 3))
+class IconBatcher:
+    """Accumulates textured icon quads and draws them in a single GPU call using the atlas."""
+    __slots__ = ('_verts', '_uvs', '_indices', '_idx', '_atlas_tex')
+
+    def __init__(self):
+        self._verts = []
+        self._uvs = []
+        self._indices = []
+        self._idx = 0
+        self._atlas_tex = None
+
+    def add(self, icon_info, x, y, size):
+        """Add an icon. icon_info = (atlas_tex, u0, v0, u1, v1) or None."""
+        if icon_info is None:
+            return
+        atlas_tex, u0, v0, u1, v1 = icon_info
+        self._atlas_tex = atlas_tex
+        i = self._idx
+        self._verts.extend(((x, y), (x + size, y), (x + size, y + size), (x, y + size)))
+        self._uvs.extend(((u0, v0), (u1, v0), (u1, v1), (u0, v1)))
+        self._indices.extend(((i, i + 1, i + 2), (i, i + 2, i + 3)))
+        self._idx += 4
+
+    def flush(self):
+        if not self._verts or self._atlas_tex is None:
+            return
+        shader = _get_shader_image()
+        batch = batch_for_shader(shader, 'TRIS',
+                                 {"pos": self._verts, "texCoord": self._uvs},
+                                 indices=self._indices)
+        shader.bind()
+        shader.uniform_sampler("image", self._atlas_tex)
+        batch.draw(shader)
+        self._verts.clear()
+        self._uvs.clear()
+        self._indices.clear()
+        self._idx = 0
 
 
-def _draw_icon(texture, x, y, size):
-    """Draw an icon texture at (x, y) with given size."""
-    if texture is None:
+def _draw_icon(icon_info, x, y, size):
+    """Draw a single icon immediately. icon_info = (atlas_tex, u0, v0, u1, v1) or None.
+    Prefer IconBatcher for batched rendering."""
+    if icon_info is None:
         return
     try:
+        atlas_tex, u0, v0, u1, v1 = icon_info
         shader = _get_shader_image()
         coords = ((x, y), (x + size, y), (x + size, y + size), (x, y + size))
+        uvs = ((u0, v0), (u1, v0), (u1, v1), (u0, v1))
         batch = batch_for_shader(shader, 'TRIS',
-                                 {"pos": coords, "texCoord": _icon_texcoords},
-                                 indices=_icon_indices)
+                                 {"pos": coords, "texCoord": uvs},
+                                 indices=((0, 1, 2), (0, 2, 3)))
         shader.bind()
-        shader.uniform_sampler("image", texture)
+        shader.uniform_sampler("image", atlas_tex)
         batch.draw(shader)
     except Exception:
         _log.debug("Icon draw failed", exc_info=True)
@@ -932,18 +969,20 @@ def _draw_filter_lists(ctx):
                 blf.position(font_id, px + (pw - tw) / 2, py + ph - list_font_size - sp2, 0)
                 blf.draw(font_id, header_text)
 
+                ib = ctx.ib
                 for dlabel, dvalue, dx, actual_y, dw, dh, is_ed in visible_items:
                     blf.color(font_id, *colors['text'])
-                    icon_tex = get_editor_icon(dvalue) if is_ed else get_mode_icon(dvalue)
+                    icon_info = get_editor_icon(dvalue) if is_ed else get_mode_icon(dvalue)
                     icon_size = int(dh * 0.65)
                     icon_x = dx + sp2
                     icon_y = actual_y + (dh - icon_size) / 2
-                    _draw_icon(icon_tex, icon_x, icon_y, icon_size)
-                    text_x = icon_x + icon_size + sp2 if icon_tex else dx + sp4
+                    ib.add(icon_info, icon_x, icon_y, icon_size)
+                    text_x = icon_x + icon_size + sp2 if icon_info else dx + sp4
                     avail_w = dw - (text_x - dx) - sp2
                     display, tw, th = _truncate_text(font_id, dlabel, avail_w)
                     blf.position(font_id, text_x, actual_y + (dh - th) / 2, 0)
                     blf.draw(font_id, display)
+                ib.flush()
 
             if has_scrollbar:
                 fade_h = sp6
@@ -1223,7 +1262,7 @@ DrawContext = namedtuple('DrawContext', [
     'colors', 's', 'rw', 'rh',
     'font_xs', 'font_sm', 'font_base', 'font_lg', 'font_xl',
     'category_colors_enabled', 'now',
-    'rb', 'lb',
+    'rb', 'lb', 'ib',
 ])
 
 
@@ -2614,6 +2653,7 @@ def _draw_callback():
         # Build shared draw context with batchers
         rb = RectBatcher()
         lb = LineBatcher()
+        ib = IconBatcher()
         ctx = DrawContext(
             shader_uniform=shader_uniform,
             shader_smooth=shader_smooth,
@@ -2632,6 +2672,7 @@ def _draw_callback():
             now=now,
             rb=rb,
             lb=lb,
+            ib=ib,
         )
 
         # --- Draw sections ---
