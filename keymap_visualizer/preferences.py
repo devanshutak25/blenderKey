@@ -26,7 +26,7 @@ def _invalidate_layout(self, ctx):
 
 
 class KeymapVizPreferences(bpy.types.AddonPreferences):
-    bl_idname = "keymap_visualizer"
+    bl_idname = __package__
 
     # --- Keyboard Layout ---
     keyboard_logical_layout: EnumProperty(
@@ -77,6 +77,14 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
             ('ALL', "All", "Export all keybindings"),
         ],
         default='MODIFIED',
+    )
+
+    # --- Import ---
+    import_path: StringProperty(
+        name="Import Path",
+        description="File path for keymap import (Python script exported by this addon)",
+        subtype='FILE_PATH',
+        default="",
     )
 
     # --- Fonts ---
@@ -418,9 +426,10 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
 
         # Export settings
         box = layout.box()
-        box.label(text="Export Settings")
+        box.label(text="Export / Import Settings")
         box.prop(self, "export_path")
         box.prop(self, "export_scope")
+        box.prop(self, "import_path")
 
         # Presets
         box = layout.box()

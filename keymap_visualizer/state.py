@@ -4,6 +4,34 @@ All modules import this as a module and read/write attributes directly.
 No imports from other addon modules (leaf node).
 """
 
+import bpy
+from enum import IntFlag, auto
+
+
+class DirtyFlag(IntFlag):
+    BATCH = auto()
+    BOUND_KEYS = auto()
+    KEY_LABELS = auto()
+    KEY_CATEGORIES = auto()
+    KEY_EDITOR_ICONS = auto()
+    KEY_MODIFIER_BADGES = auto()
+    OPERATOR_LIST = auto()
+    OPERATOR_BOUND_OPS = auto()
+    DIFF = auto()
+    ALL = BATCH | BOUND_KEYS | KEY_LABELS | KEY_CATEGORIES | KEY_EDITOR_ICONS | KEY_MODIFIER_BADGES | OPERATOR_LIST | OPERATOR_BOUND_OPS | DIFF
+
+
+# ---------------------------------------------------------------------------
+# Addon package name (used for preferences lookup)
+# ---------------------------------------------------------------------------
+_addon_package = __package__
+
+
+def _get_prefs():
+    """Return addon preferences using the runtime package name."""
+    return bpy.context.preferences.addons[_addon_package].preferences
+
+
 # ---------------------------------------------------------------------------
 # Re-entrant guard
 # ---------------------------------------------------------------------------
@@ -56,14 +84,19 @@ _flyout_pending_index = -1  # which main menu item we're waiting to open flyout 
 _export_button_rect = None  # (x, y, w, h)
 _export_hovered = False
 
+# Import button
+_import_button_rect = None  # (x, y, w, h)
+_import_hovered = False
+
 # Phase 7: Search
 _search_text = ''
 _search_active = False
 _search_matching_keys = set()  # set of event_type strings
+_search_results_count = 0      # number of matched keys (updated by _update_search_filter)
 _search_last_update = 0.0
 
-# Phase 7: Batch cache
-_batch_dirty = True
+# Phase 7: Batch cache / dirty flags
+_dirty_flags = DirtyFlag.ALL
 
 # Phase 7: Hover transition
 _hover_transition = 0.0
@@ -85,11 +118,9 @@ _resize_drag_start_scale = 1.0
 
 # Feature 3: Bound-key highlighting
 _bound_keys_cache = set()    # set of event_type strings with active bindings
-_bound_keys_dirty = True
 
 # v0.9 Feature 1: On-key command labels
 _key_labels_cache = {}       # {event_type: "Short Name"}
-_key_labels_dirty = True
 
 # v0.9 Feature 2: Real-time physical modifier reactivity
 _physical_modifiers = {'ctrl': False, 'shift': False, 'alt': False, 'oskey': False}
@@ -97,12 +128,10 @@ _modifier_source = 'TOGGLE'  # 'TOGGLE' or 'PHYSICAL'
 
 # v0.9 Feature 3: Category color-coding
 _key_categories_cache = {}   # {event_type: "category_name"}
-_key_categories_dirty = True
 _category_colors_enabled = True
 
 # Icon feature: Per-key editor icon cache
 _key_editor_icons_cache = {}   # {event_type: space_type}
-_key_editor_icons_dirty = True
 
 # v0.9 Feature 4: Undo/redo for keymap changes
 _undo_stack = []    # list of [{'kmi': kmi_ref, 'before': {snapshot}}, ...]
@@ -158,12 +187,10 @@ _tooltip_hover_start = 0.0  # time.monotonic() when hover began
 
 # Key modifier badge
 _key_modifier_badge_cache = {}   # {event_type: int} — count of additional modifier combos
-_key_modifier_badge_dirty = True
 
 # Operator List panel
 _operator_list_rect = None              # (x, y, w, h) panel bounding box
 _operator_list_categories = {}          # {category: [(op_id, human_name), ...]} cached
-_operator_list_dirty = True             # needs rebuild from bpy.ops
 _operator_list_expanded = set()         # set of category names currently expanded
 _operator_list_group_rects = []         # [(category, x, y, w, h), ...] rebuilt each frame
 _operator_list_item_rects = []          # [(op_id, human_name, x, y, w, h), ...] rebuilt each frame
@@ -174,7 +201,6 @@ _operator_list_hovered_item = -1        # index into item_rects
 _operator_list_search_text = ''
 _operator_list_search_active = False
 _operator_list_bound_ops = set()        # op_ids with active bindings
-_operator_list_bound_ops_dirty = True
 
 # Operator flyout
 _op_flyout_items = []                   # [(label, action, x, y, w, h), ...]
@@ -194,6 +220,11 @@ _capture_target_key_index = -1
 _rebind_flash_key_index = -1
 _rebind_flash_time = 0.0
 
+# Diff view mode
+_diff_mode_active = False
+_diff_modified_keys = set()    # event_types with modified bindings
+_diff_removed_keys = set()     # event_types with deactivated bindings
+
 # Launch: deferred modal start (stored here because operator instances are
 # freed after execute() returns, so self._xxx is invalid in timer callbacks)
 _launch_window = None
@@ -212,16 +243,17 @@ def _reset_all_state():
     global _modal_state, _conflict_hovered_button, _gpu_menu_hovered
     global _gpu_flyout_hovered, _flyout_hover_timer, _flyout_target_index, _flyout_pending_index
     global _export_button_rect, _export_hovered
-    global _search_text, _search_active, _search_matching_keys, _search_last_update
-    global _batch_dirty, _hover_transition, _hover_transition_target, _last_frame_time
+    global _import_button_rect, _import_hovered
+    global _search_text, _search_active, _search_matching_keys, _search_results_count, _search_last_update
+    global _dirty_flags, _hover_transition, _hover_transition_target, _last_frame_time
     global _close_button_rect, _close_hovered, _should_close
     global _user_scale, _resize_handle_rect, _resize_hovered, _resize_dragging
     global _resize_drag_start_x, _resize_drag_start_scale
-    global _bound_keys_cache, _bound_keys_dirty
-    global _key_labels_cache, _key_labels_dirty
+    global _bound_keys_cache
+    global _key_labels_cache
     global _physical_modifiers, _modifier_source
-    global _key_categories_cache, _key_categories_dirty, _category_colors_enabled
-    global _key_editor_icons_cache, _key_editor_icons_dirty
+    global _key_categories_cache, _category_colors_enabled
+    global _key_editor_icons_cache
     global _shortcut_search_active
     global _active_preset_name, _presets_btn_rect, _presets_hovered
     global _preset_dropdown_open, _preset_dropdown_hovered
@@ -233,18 +265,19 @@ def _reset_all_state():
     global _filter_scroll_drag_target, _filter_scroll_drag_start_y, _filter_scroll_drag_start_offset
     global _info_panel_scroll, _info_panel_rect, _info_panel_max_scroll
     global _info_panel_expanded_groups, _info_panel_group_header_rects
-    global _key_modifier_badge_cache, _key_modifier_badge_dirty
+    global _key_modifier_badge_cache
     global _launch_retry_count
     global _nav_focus, _nav_key_index
     global _tooltip_text, _tooltip_hover_start
-    global _operator_list_rect, _operator_list_dirty
+    global _operator_list_rect
     global _operator_list_scroll, _operator_list_max_scroll
     global _operator_list_hovered_group, _operator_list_hovered_item
     global _operator_list_search_text, _operator_list_search_active
-    global _operator_list_bound_ops, _operator_list_bound_ops_dirty
+    global _operator_list_bound_ops
     global _op_flyout_hovered, _op_flyout_target_op_id, _op_flyout_visible
     global _capture_new_binding, _capture_target_op_id, _capture_target_km_name
     global _capture_target_key_index, _rebind_flash_key_index, _rebind_flash_time
+    global _diff_mode_active, _diff_modified_keys, _diff_removed_keys
 
     _draw_handle = None
     _target_area = None
@@ -275,11 +308,14 @@ def _reset_all_state():
     _flyout_pending_index = -1
     _export_button_rect = None
     _export_hovered = False
+    _import_button_rect = None
+    _import_hovered = False
     _search_text = ''
     _search_active = False
     _search_matching_keys = set()
+    _search_results_count = 0
     _search_last_update = 0.0
-    _batch_dirty = True
+    _dirty_flags = DirtyFlag.ALL
     _hover_transition = 0.0
     _hover_transition_target = -1
     _last_frame_time = 0.0
@@ -293,15 +329,11 @@ def _reset_all_state():
     _resize_drag_start_x = 0
     _resize_drag_start_scale = 1.0
     _bound_keys_cache = set()
-    _bound_keys_dirty = True
     _key_labels_cache = {}
-    _key_labels_dirty = True
     _physical_modifiers = {'ctrl': False, 'shift': False, 'alt': False, 'oskey': False}
     _modifier_source = 'TOGGLE'
     _key_categories_cache = {}
-    _key_categories_dirty = True
     _key_editor_icons_cache = {}
-    _key_editor_icons_dirty = True
     _undo_stack.clear()
     _redo_stack.clear()
     _shortcut_search_active = False
@@ -333,7 +365,6 @@ def _reset_all_state():
     _info_panel_expanded_groups = set()
     _info_panel_group_header_rects = []
     _key_modifier_badge_cache = {}
-    _key_modifier_badge_dirty = True
     _nav_focus = 'KEYS'
     _nav_key_index = 0
     _key_row_map.clear()
@@ -341,7 +372,6 @@ def _reset_all_state():
     _tooltip_hover_start = 0.0
     _operator_list_rect = None
     _operator_list_categories.clear()
-    _operator_list_dirty = True
     _operator_list_expanded.clear()
     _operator_list_group_rects.clear()
     _operator_list_item_rects.clear()
@@ -352,7 +382,6 @@ def _reset_all_state():
     _operator_list_search_text = ''
     _operator_list_search_active = False
     _operator_list_bound_ops = set()
-    _operator_list_bound_ops_dirty = True
     _op_flyout_items.clear()
     _op_flyout_hovered = -1
     _op_flyout_target_op_id = None
@@ -363,20 +392,17 @@ def _reset_all_state():
     _capture_target_key_index = -1
     _rebind_flash_key_index = -1
     _rebind_flash_time = 0.0
+    _diff_mode_active = False
+    _diff_modified_keys = set()
+    _diff_removed_keys = set()
 
 
 def _invalidate_cache():
     """Invalidate binding cache and mark batches dirty."""
-    global _bindings_key, _all_bindings_key, _batch_dirty, _bound_keys_dirty, _key_labels_dirty, _key_categories_dirty, _key_editor_icons_dirty, _key_modifier_badge_dirty, _operator_list_bound_ops_dirty
+    global _bindings_key, _all_bindings_key, _dirty_flags
     _bindings_key = None
     _all_bindings_key = None
-    _batch_dirty = True
-    _bound_keys_dirty = True
-    _key_labels_dirty = True
-    _key_categories_dirty = True
-    _key_editor_icons_dirty = True
-    _key_modifier_badge_dirty = True
-    _operator_list_bound_ops_dirty = True
+    _dirty_flags = DirtyFlag.ALL
 
 
 def _get_effective_modifiers():

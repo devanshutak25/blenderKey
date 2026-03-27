@@ -3,9 +3,12 @@ Keymap Visualizer – Icon loading, caching, and lookup helpers.
 Loads PNG icons from the icons/ directory into GPU textures for use in drawing.
 """
 
+import logging
 import os
 import bpy
 import gpu
+
+_log = logging.getLogger("keymap_visualizer.icons")
 
 _icon_textures = {}   # {"editors/view3d": GPUTexture, ...}
 _icons_loaded = False
@@ -67,11 +70,10 @@ def _load_icons():
         try:
             img = bpy.data.images.load(filepath, check_existing=True)
             img.colorspace_settings.name = 'Non-Color'
-            img.gl_load()
             tex = gpu.texture.from_image(img)
             _icon_textures[rel_path] = tex
         except Exception:
-            pass
+            _log.debug("Could not load icon %s", rel_path, exc_info=True)
 
 
 def get_editor_icon(space_type):
@@ -106,6 +108,6 @@ def cleanup_icons():
                     bpy.data.images.remove(img)
                     break
             except Exception:
-                pass
+                _log.debug("Could not remove icon image", exc_info=True)
     _icon_textures.clear()
     _icons_loaded = False

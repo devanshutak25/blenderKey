@@ -3,20 +3,13 @@ Keymap Visualizer – Visual keyboard-based keymap editor for Blender.
 Requires Blender 4.2+ (tested against 5.0 API).
 """
 
-bl_info = {
-    "name": "Keymap Visualizer",
-    "author": "blenderKey",
-    "version": (0, 9, 0),
-    "blender": (4, 2, 0),
-    "location": "Edit Menu (Top Bar)",
-    "description": "Visual keyboard-based keymap editor",
-    "category": "System",
-}
-
+import logging
 import bpy
 from .operators import WM_OT_keymap_viz_modal, WM_OT_keymap_viz_launch, _draw_header_button
 from .preferences import KeymapVizPreferences
 from . import state
+
+_log = logging.getLogger("keymap_visualizer")
 
 _classes = (
     KeymapVizPreferences,
@@ -37,7 +30,7 @@ def unregister():
         try:
             bpy.types.SpaceTextEditor.draw_handler_remove(state._draw_handle, 'WINDOW')
         except Exception:
-            pass
+            _log.debug("Draw handler already removed", exc_info=True)
     state._reset_all_state()
     state._visualizer_running = False
 

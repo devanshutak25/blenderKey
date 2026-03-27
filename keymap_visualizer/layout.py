@@ -4,6 +4,7 @@ Keymap Visualizer – Keyboard layout computation
 
 import bpy
 from . import state
+from .state import DirtyFlag
 from .constants import KeyRect, SPACE_TYPE_FILTERS, MODE_FILTERS
 from .keyboards import get_resolved_rows
 
@@ -12,11 +13,11 @@ def _compute_keyboard_layout(region_width, region_height):
     """Compute KeyRect list for all keys, centered in the region."""
     state._key_rects = []
     state._modifier_rects = []
-    state._batch_dirty = True
+    state._dirty_flags |= DirtyFlag.BATCH
 
     # Read keyboard layout preferences
     try:
-        prefs = bpy.context.preferences.addons["keymap_visualizer"].preferences
+        prefs = state._get_prefs()
         form_factor = prefs.keyboard_form_factor
         logical_layout = prefs.keyboard_logical_layout
         physical_size = prefs.keyboard_physical_size
@@ -126,21 +127,24 @@ def _compute_keyboard_layout(region_width, region_height):
                     state._key_rects.append(KeyRect(label, event_type, x, y, w, h))
                     x += width_u * unit_px
 
-    # --- Toolbar row above keyboard (Export + Presets + Close, right-aligned) ---
+    # --- Toolbar row above keyboard (Export + Import + Presets + Close, right-aligned) ---
     toolbar_y = start_y + len(main_rows) * unit_px + unit_px * 0.3
     toolbar_h = unit_px * 0.55
     btn_gap = unit_px * 0.2
     export_btn_w = unit_px * 1.6
+    import_btn_w = unit_px * 1.6
     presets_btn_w = unit_px * 1.6
     close_btn_size = toolbar_h
 
     all_max_x = max(kr.x + kr.w for kr in state._key_rects)
-    total_toolbar_w = export_btn_w + btn_gap + presets_btn_w + btn_gap + close_btn_size
+    total_toolbar_w = export_btn_w + btn_gap + import_btn_w + btn_gap + presets_btn_w + btn_gap + close_btn_size
     toolbar_x = all_max_x - total_toolbar_w
 
     x = toolbar_x
     state._export_button_rect = (x, toolbar_y, export_btn_w, toolbar_h)
     x += export_btn_w + btn_gap
+    state._import_button_rect = (x, toolbar_y, import_btn_w, toolbar_h)
+    x += import_btn_w + btn_gap
     state._presets_btn_rect = (x, toolbar_y, presets_btn_w, toolbar_h)
     x += presets_btn_w + btn_gap
     state._close_button_rect = (x, toolbar_y, close_btn_size, close_btn_size)

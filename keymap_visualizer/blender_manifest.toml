@@ -1,0 +1,14 @@
+schema_version = "1.0.0"
+
+id = "keymap_visualizer"
+version = "1.0.0"
+name = "Keymap Visualizer"
+tagline = "Visual keyboard-based keymap editor"
+maintainer = "Devanshu Tak <devanshutak25>"
+type = "add-on"
+license = ["SPDX:MIT"]
+
+blender_version_min = "4.2.0"
+
+[permissions]
+files = "Export keymap configurations and save presets to disk"

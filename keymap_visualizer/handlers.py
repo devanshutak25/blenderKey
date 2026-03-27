@@ -4,8 +4,9 @@ Keymap Visualizer – State machine event handlers
 
 import time
 from . import state
+from .state import DirtyFlag
 from .hit_testing import (
-    _hit_test_key, _hit_test_export,
+    _hit_test_key, _hit_test_export, _hit_test_import,
     _hit_test_conflict_buttons, _hit_test_gpu_menu, _hit_test_flyout,
     _hit_test_close, _hit_test_resize,
     _hit_test_editor_list, _hit_test_mode_list,
@@ -20,7 +21,7 @@ from .keymap_data import (
     _push_undo, _do_undo, _do_redo,
     _create_new_binding, _remove_all_bindings_for_op, _get_target_keymap_for_op,
 )
-from .export import _do_export
+from .export import _do_export, _do_import
 from .drawing import _build_gpu_menu, _build_flyout, _build_preset_dropdown
 from .constants import _CAPTURABLE_KEYS, MODIFIER_KEY_TO_DICT
 
@@ -38,7 +39,7 @@ def _dismiss_menu():
     state._gpu_flyout_items.clear()
     state._gpu_flyout_hovered = -1
     state._flyout_target_index = -1
-    state._batch_dirty = True
+    state._dirty_flags |= DirtyFlag.BATCH
     _tag_redraw()
 
 
@@ -48,7 +49,7 @@ def _dismiss_conflict():
     state._conflict_button_rects.clear()
     state._conflict_data['conflicts'] = []
     state._menu_context.clear()
-    state._batch_dirty = True
+    state._dirty_flags |= DirtyFlag.BATCH
     _tag_redraw()
 
 
@@ -58,7 +59,7 @@ def _dismiss_preset_dropdown():
     state._preset_dropdown_rects = []
     state._preset_dropdown_hovered = -1
     state._modal_state = 'IDLE'
-    state._batch_dirty = True
+    state._dirty_flags |= DirtyFlag.BATCH
     _tag_redraw()
 
 
@@ -306,6 +307,7 @@ def _handle_idle(context, event):
         mx, my = event.mouse_region_x, event.mouse_region_y
         new_hover = _hit_test_key(mx, my)
         new_export_hover = _hit_test_export(mx, my)
+        new_import_hover = _hit_test_import(mx, my)
         new_close_hover = _hit_test_close(mx, my)
         new_resize_hover = _hit_test_resize(mx, my)
         new_presets_hover = _hit_test_presets_button(mx, my)
@@ -313,10 +315,13 @@ def _handle_idle(context, event):
         changed = False
         if new_hover != state._hovered_key_index:
             state._hovered_key_index = new_hover
-            state._batch_dirty = True
+            state._dirty_flags |= DirtyFlag.BATCH
             changed = True
         if new_export_hover != state._export_hovered:
             state._export_hovered = new_export_hover
+            changed = True
+        if new_import_hover != state._import_hovered:
+            state._import_hovered = new_import_hover
             changed = True
         if new_close_hover != state._close_hovered:
             state._close_hovered = new_close_hover
@@ -365,6 +370,8 @@ def _handle_idle(context, event):
         tooltip = ""
         if new_export_hover:
             tooltip = "Export keymap to file (see Addon Preferences for path)"
+        elif new_import_hover:
+            tooltip = "Import keymap from file (see Addon Preferences for path)"
         elif new_presets_hover:
             tooltip = "Save/load keymap presets"
         elif new_close_hover:
@@ -471,6 +478,15 @@ def _handle_idle(context, event):
             _tag_redraw()
             return {'RUNNING_MODAL'}
 
+        # Check import button
+        if _hit_test_import(mx, my):
+            success, msg = _do_import()
+            print(f"[Keymap Visualizer] {msg}")
+            if success:
+                state._invalidate_cache()
+            _tag_redraw()
+            return {'RUNNING_MODAL'}
+
         # Check key hit
         key_hit = _hit_test_key(mx, my)
         if key_hit >= 0:
@@ -480,7 +496,7 @@ def _handle_idle(context, event):
                 dict_key = MODIFIER_KEY_TO_DICT[kr.event_type]
                 state._active_modifiers[dict_key] = not state._active_modifiers[dict_key]
                 state._invalidate_cache()
-                state._batch_dirty = True
+                state._dirty_flags |= DirtyFlag.BATCH
                 _tag_redraw()
                 return {'RUNNING_MODAL'}
             # Normal key selection (toggle on re-click)
@@ -490,7 +506,7 @@ def _handle_idle(context, event):
                 state._selected_key_index = key_hit
             state._info_panel_scroll = 0  # Reset scroll on key change
             state._info_panel_expanded_groups.clear()
-            state._batch_dirty = True
+            state._dirty_flags |= DirtyFlag.BATCH
             _tag_redraw()
         return {'RUNNING_MODAL'}
 
@@ -538,6 +554,14 @@ def _handle_idle(context, event):
         _tag_redraw()
         return {'RUNNING_MODAL'}
 
+    # Diff view toggle: D key (when not in search mode)
+    if event.type == 'D' and event.value == 'PRESS' and not event.ctrl and not event.shift and not event.alt:
+        if not state._search_active and not state._shortcut_search_active and not state._operator_list_search_active and not state._preset_name_input_active:
+            state._diff_mode_active = not state._diff_mode_active
+            state._dirty_flags |= DirtyFlag.DIFF | DirtyFlag.BATCH
+            _tag_redraw()
+            return {'RUNNING_MODAL'}
+
     # C2: Keyboard navigation — arrow keys
     if event.type in ('LEFT_ARROW', 'RIGHT_ARROW', 'UP_ARROW', 'DOWN_ARROW') and event.value == 'PRESS':
         if not event.ctrl and not event.shift and not event.alt:
@@ -548,7 +572,7 @@ def _handle_idle(context, event):
             if state._nav_focus == 'KEYS':
                 if _navigate_key(direction_map[event.type]):
                     state._hovered_key_index = state._nav_key_index
-                    state._batch_dirty = True
+                    state._dirty_flags |= DirtyFlag.BATCH
                     _tag_redraw()
                 return {'RUNNING_MODAL'}
             elif state._nav_focus in ('EDITOR_LIST', 'MODE_LIST'):
@@ -585,7 +609,7 @@ def _handle_idle(context, event):
             state._filter_editor_hovered = max(0, state._filter_editor_hovered)
         elif state._nav_focus == 'MODE_LIST':
             state._filter_mode_hovered = max(0, state._filter_mode_hovered)
-        state._batch_dirty = True
+        state._dirty_flags |= DirtyFlag.BATCH
         _tag_redraw()
         return {'RUNNING_MODAL'}
 
@@ -605,7 +629,7 @@ def _handle_idle(context, event):
                     state._selected_key_index = idx
                 state._info_panel_scroll = 0
                 state._info_panel_expanded_groups.clear()
-                state._batch_dirty = True
+                state._dirty_flags |= DirtyFlag.BATCH
                 _tag_redraw()
             return {'RUNNING_MODAL'}
         elif state._nav_focus == 'EDITOR_LIST':
@@ -755,7 +779,7 @@ def _handle_capture(context, event):
         state._capture_new_binding = False
         state._capture_target_op_id = None
         state._capture_target_km_name = None
-        state._batch_dirty = True
+        state._dirty_flags |= DirtyFlag.BATCH
         _tag_redraw()
         return {'RUNNING_MODAL'}
 
@@ -783,7 +807,7 @@ def _handle_capture(context, event):
             state._capture_target_op_id = None
             state._capture_target_km_name = None
             state._capture_target_key_index = -1
-            state._batch_dirty = True
+            state._dirty_flags |= DirtyFlag.BATCH
             _tag_redraw()
             return {'RUNNING_MODAL'}
 
@@ -821,7 +845,7 @@ def _handle_capture(context, event):
             state._conflict_data['conflicts'] = conflicts
             state._modal_state = 'CONFLICT'
 
-        state._batch_dirty = True
+        state._dirty_flags |= DirtyFlag.BATCH
         _tag_redraw()
         return {'RUNNING_MODAL'}
 
@@ -974,7 +998,7 @@ def _handle_shortcut_search(context, event):
             state._invalidate_cache()
 
         state._shortcut_search_active = False
-        state._batch_dirty = True
+        state._dirty_flags |= DirtyFlag.BATCH
         _tag_redraw()
         return {'RUNNING_MODAL'}
 
@@ -1019,6 +1043,17 @@ def _handle_preset_dropdown(context, event):
                     print(f"[Keymap Visualizer] {msg}")
                     if success:
                         state._active_preset_name = ""
+            elif action == 'COPY_CLIPBOARD':
+                from .presets import _copy_preset_to_clipboard
+                if state._active_preset_name:
+                    success, msg = _copy_preset_to_clipboard(state._active_preset_name)
+                    print(f"[Keymap Visualizer] {msg}")
+            elif action == 'PASTE_CLIPBOARD':
+                from .presets import _paste_preset_from_clipboard
+                success, msg = _paste_preset_from_clipboard()
+                print(f"[Keymap Visualizer] {msg}")
+                if success:
+                    state._invalidate_cache()
             elif action.startswith('LOAD:'):
                 preset_name = action[5:]
                 from .presets import _load_preset
@@ -1268,3 +1303,46 @@ def _handle_operator_search(context, event):
         return {'RUNNING_MODAL'}
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# Dispatch table: modal_state → handler function
+# ---------------------------------------------------------------------------
+_STATE_HANDLERS = {
+    'MENU_OPEN': _handle_menu_open,
+    'CAPTURE': _handle_capture,
+    'CONFLICT': _handle_conflict,
+    'PRESET_DROPDOWN': _handle_preset_dropdown,
+    'OP_FLYOUT': _handle_op_flyout,
+}
+
+# Priority handlers: checked before the state machine when in IDLE state
+_IDLE_PRIORITY_HANDLERS = [
+    (lambda: state._preset_name_input_active, _handle_preset_name_input),
+    (lambda: state._shortcut_search_active, _handle_shortcut_search),
+    (lambda: state._operator_list_search_active, _handle_operator_search),
+    (lambda: state._search_active, _handle_search),
+]
+
+
+def dispatch(context, event):
+    """Central dispatch: priority handlers → state machine → idle fallback.
+
+    Returns a modal return set ({'RUNNING_MODAL'}, {'PASS_THROUGH'}, etc.)
+    or None if the event was not consumed.
+    """
+    # Priority handlers (active only in IDLE state)
+    if state._modal_state == 'IDLE':
+        for is_active, handler in _IDLE_PRIORITY_HANDLERS:
+            if is_active():
+                result = handler(context, event)
+                if result is not None:
+                    return result
+
+    # State machine dispatch
+    handler = _STATE_HANDLERS.get(state._modal_state)
+    if handler is not None:
+        return handler(context, event)
+
+    # IDLE state fallback
+    return _handle_idle(context, event)

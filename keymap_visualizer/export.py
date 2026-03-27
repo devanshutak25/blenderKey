@@ -2,9 +2,13 @@
 Keymap Visualizer – Export functions
 """
 
+import logging
+import ast
 import bpy
 import os
 from . import state
+
+_log = logging.getLogger("keymap_visualizer.export")
 
 
 def _kmi_to_properties_dict(kmi):
@@ -24,9 +28,9 @@ def _kmi_to_properties_dict(kmi):
                         val = val.to_dict()
                     props[prop_name] = val
                 except Exception:
-                    pass
+                    _log.debug("Could not serialize property %s", prop_name, exc_info=True)
     except Exception:
-        pass
+        _log.debug("Could not read KMI properties", exc_info=True)
     return props
 
 
@@ -113,10 +117,11 @@ def _write_export_file(filepath, keyconfig_data):
 def _do_export():
     """Run the export using addon preferences settings. Returns (success, message)."""
     try:
-        prefs = bpy.context.preferences.addons["keymap_visualizer"].preferences
+        prefs = state._get_prefs()
         filepath = prefs.export_path
         scope = prefs.export_scope
     except Exception:
+        _log.debug("Could not read export preferences, using defaults", exc_info=True)
         filepath = os.path.join(os.path.dirname(__file__), "exports", "custom_keymap.py")
         scope = 'MODIFIED'
 
@@ -127,4 +132,69 @@ def _do_export():
         abs_path = _write_export_file(filepath, data)
         return (True, f"Exported to {abs_path}")
     except Exception as e:
+        _log.warning("Export failed", exc_info=True)
         return (False, f"Export failed: {e}")
+
+
+def _do_import():
+    """Import a keyconfig Python file exported by this addon. Returns (success, message)."""
+    try:
+        prefs = state._get_prefs()
+        filepath = prefs.import_path
+    except Exception:
+        _log.debug("Could not read import preferences", exc_info=True)
+        return (False, "Import path not set in addon preferences")
+
+    if not filepath:
+        return (False, "Import path is empty")
+
+    abs_path = bpy.path.abspath(filepath)
+    if not os.path.isfile(abs_path):
+        return (False, f"File not found: {abs_path}")
+
+    try:
+        with open(abs_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+    except Exception as e:
+        _log.warning("Could not read import file", exc_info=True)
+        return (False, f"Could not read file: {e}")
+
+    # Parse keyconfig_data from the file
+    keyconfig_data = None
+    try:
+        # Find the line starting with 'keyconfig_data'
+        for line_no, line in enumerate(content.splitlines()):
+            stripped = line.strip()
+            if stripped.startswith("keyconfig_data"):
+                # Extract everything after the first '=' on this line and onwards
+                eq_pos = content.index("keyconfig_data")
+                remainder = content[eq_pos:]
+                # Find the '=' sign
+                eq_idx = remainder.index('=')
+                value_str = remainder[eq_idx + 1:].strip()
+                # Remove line-continuation backslash if present
+                if value_str.startswith('\\'):
+                    value_str = value_str[1:].strip()
+                keyconfig_data = ast.literal_eval(value_str)
+                break
+    except (ValueError, SyntaxError) as e:
+        _log.warning("Failed to parse keyconfig_data from file", exc_info=True)
+        return (False, f"Failed to parse keyconfig_data: {e}")
+
+    if keyconfig_data is None:
+        return (False, "No keyconfig_data found in file")
+
+    if not isinstance(keyconfig_data, list) or not keyconfig_data:
+        return (False, "keyconfig_data is empty or invalid")
+
+    # Push undo before applying
+    from .keymap_data import _push_undo
+    _push_undo()
+
+    # Apply using shared logic from presets
+    from .presets import _apply_keyconfig_data
+    success, result = _apply_keyconfig_data(keyconfig_data)
+    if not success:
+        return (False, result)
+
+    return (True, f"Imported {result} bindings from {os.path.basename(abs_path)}")

@@ -80,7 +80,15 @@
       "Bash(grep -rn \"\\\\.py\\\\|\\\\.blend\\\\|\\\\.exe\\\\|hardcoded\\\\|TODO\\\\|FIXME\\\\|HACK\" G:/Personal/blenderKey/keymap_visualizer/*.py 2>/dev/null | grep -i \"path\\\\|export\\\\|save\\\\|file\" | head -20)",
       "Bash(wc -l G:/Personal/blenderKey/keymap_visualizer/*.py)",
       "Bash(ls *.py)",
-      "Bash(cd G:/Personal/blenderKey && wc -l keymap_visualizer/*.py | tail -1)"
+      "Bash(cd G:/Personal/blenderKey && wc -l keymap_visualizer/*.py | tail -1)",
+      "Bash(grep -E \"\\\\.\\(py|md|toml|json|yaml|yml|txt|LICENSE\\)$\")",
+      "Bash(find . -type f ! -path \"./.git/*\" ! -path \"./.claude/*\" -exec wc -c {} +)",
+      "Bash(grep -r \"TODO\\\\|FIXME\\\\|HACK\\\\|XXX\" --include=*.py ./keymap_visualizer)",
+      "Bash(for f:*)",
+      "Bash(do python:*)",
+      "Bash(echo \"OK: $f\")",
+      "Bash(echo \"FAIL: $f\")",
+      "Bash(done)"
     ]
   }
 }

@@ -4,6 +4,7 @@ Keymap Visualizer – Keymap query, conflict detection, rebinding, search filter
 
 import bpy
 from . import state
+from .state import DirtyFlag
 from .constants import OPERATOR_ABBREVIATIONS, OPERATOR_CATEGORIES, OPERATOR_CATEGORY_ORDER, OPERATOR_CATEGORY_KEYMAPS
 
 
@@ -247,30 +248,114 @@ def _reset_kmi_to_default(kmi, km_name):
     return False
 
 
+def _compute_diff_keys():
+    """Compute sets of event_types with modified or deactivated bindings vs defaults."""
+    if not state._diff_mode_active:
+        return
+    if not (state._dirty_flags & DirtyFlag.DIFF):
+        return
+
+    modified = set()
+    removed = set()
+
+    wm = bpy.context.window_manager
+    kc_user = wm.keyconfigs.user
+    kc_default = wm.keyconfigs.default
+    if kc_user is None or kc_default is None:
+        state._diff_modified_keys = modified
+        state._diff_removed_keys = removed
+        state._dirty_flags &= ~DirtyFlag.DIFF
+        return
+
+    # Build a lookup of default KMIs: {(km_name, idname): [default_kmi, ...]}
+    default_lookup = {}
+    for km in kc_default.keymaps:
+        for kmi in km.keymap_items:
+            key = (km.name, kmi.idname)
+            if key not in default_lookup:
+                default_lookup[key] = []
+            default_lookup[key].append(kmi)
+
+    for km in kc_user.keymaps:
+        if not _km_passes_filter(km):
+            continue
+        for kmi in km.keymap_items:
+            key = (km.name, kmi.idname)
+            defaults = default_lookup.get(key)
+            if defaults is None:
+                # New binding not in defaults -> modified
+                if kmi.active:
+                    modified.add(kmi.type)
+                continue
+
+            # Find matching default by idname (first match)
+            matched_default = defaults[0]
+
+            # Check if deactivated vs default
+            if not kmi.active and matched_default.active:
+                removed.add(kmi.type)
+                continue
+
+            # Check if key/modifiers differ from default
+            if kmi.active and (
+                kmi.type != matched_default.type or
+                kmi.value != matched_default.value or
+                kmi.ctrl != matched_default.ctrl or
+                kmi.shift != matched_default.shift or
+                kmi.alt != matched_default.alt or
+                kmi.oskey != matched_default.oskey
+            ):
+                modified.add(kmi.type)
+
+    state._diff_modified_keys = modified
+    state._diff_removed_keys = removed
+    state._dirty_flags &= ~DirtyFlag.DIFF
+
+
 def _compute_bound_keys():
     """Compute the set of event_type strings that have active bindings (respects filters)."""
-    if not state._bound_keys_dirty:
+    if not (state._dirty_flags & DirtyFlag.BOUND_KEYS):
         return
     state._bound_keys_cache = set()
     for km, kmi in _iter_filtered_kmis():
         state._bound_keys_cache.add(kmi.type)
-    state._bound_keys_dirty = False
+    state._dirty_flags &= ~DirtyFlag.BOUND_KEYS
 
 
 def _update_search_filter():
-    """Update state._search_matching_keys based on state._search_text."""
+    """Update state._search_matching_keys based on state._search_text.
+
+    Uses token-based fuzzy matching: the query is split on whitespace into
+    tokens, and a KMI matches only if ALL tokens appear as substrings in at
+    least one of: kmi.idname, kmi.name, or the humanized abbreviation label.
+    For example "ext reg" matches "mesh.extrude_region_move".
+    """
     state._search_matching_keys = set()
 
     if not state._search_text:
-        state._batch_dirty = True
+        state._search_results_count = 0
+        state._dirty_flags |= DirtyFlag.BATCH
         return
 
-    query = state._search_text.lower()
+    tokens = state._search_text.lower().split()
+    if not tokens:
+        state._search_results_count = 0
+        state._dirty_flags |= DirtyFlag.BATCH
+        return
+
     for km, kmi in _iter_filtered_kmis(check_modifiers=False):
-        if query in kmi.idname.lower() or query in kmi.name.lower():
+        # Build searchable text from idname, display name, and abbreviation
+        idname_lower = kmi.idname.lower()
+        name_lower = kmi.name.lower()
+        abbrev = OPERATOR_ABBREVIATIONS.get(kmi.idname, '').lower()
+        if all(
+            tok in idname_lower or tok in name_lower or tok in abbrev
+            for tok in tokens
+        ):
             state._search_matching_keys.add(kmi.type)
 
-    state._batch_dirty = True
+    state._search_results_count = len(state._search_matching_keys)
+    state._dirty_flags |= DirtyFlag.BATCH
 
 
 # ---------------------------------------------------------------------------
@@ -291,14 +376,14 @@ def _get_operator_abbreviation(idname):
 
 def _compute_key_labels():
     """Compute command labels for each key based on current modifiers and filters."""
-    if not state._key_labels_dirty:
+    if not (state._dirty_flags & DirtyFlag.KEY_LABELS):
         return
     state._key_labels_cache = {}
     for km, kmi in _iter_filtered_kmis():
         # Only store first (highest priority) binding per key
         if kmi.type not in state._key_labels_cache:
             state._key_labels_cache[kmi.type] = _get_operator_abbreviation(kmi.idname)
-    state._key_labels_dirty = False
+    state._dirty_flags &= ~DirtyFlag.KEY_LABELS
 
 
 # ---------------------------------------------------------------------------
@@ -306,7 +391,7 @@ def _compute_key_labels():
 # ---------------------------------------------------------------------------
 def _compute_key_editor_icons():
     """Compute the primary editor icon (space_type) for each key."""
-    if not state._key_editor_icons_dirty:
+    if not (state._dirty_flags & DirtyFlag.KEY_EDITOR_ICONS):
         return
     state._key_editor_icons_cache = {}
     for km, kmi in _iter_filtered_kmis():
@@ -314,7 +399,7 @@ def _compute_key_editor_icons():
         if kmi.type not in state._key_editor_icons_cache:
             if km.space_type and km.space_type != 'EMPTY':
                 state._key_editor_icons_cache[kmi.type] = km.space_type
-    state._key_editor_icons_dirty = False
+    state._dirty_flags &= ~DirtyFlag.KEY_EDITOR_ICONS
 
 
 # ---------------------------------------------------------------------------
@@ -333,7 +418,7 @@ def _get_operator_category(idname):
 
 def _compute_key_categories():
     """Compute category for each key based on primary binding."""
-    if not state._key_categories_dirty:
+    if not (state._dirty_flags & DirtyFlag.KEY_CATEGORIES):
         return
     state._key_categories_cache = {}
     for km, kmi in _iter_filtered_kmis():
@@ -341,7 +426,7 @@ def _compute_key_categories():
             cat = _get_operator_category(kmi.idname)
             if cat:
                 state._key_categories_cache[kmi.type] = cat
-    state._key_categories_dirty = False
+    state._dirty_flags &= ~DirtyFlag.KEY_CATEGORIES
 
 
 # ---------------------------------------------------------------------------
@@ -349,7 +434,7 @@ def _compute_key_categories():
 # ---------------------------------------------------------------------------
 def _compute_key_modifier_badges():
     """Compute count of additional modifier combos per key (beyond current modifiers)."""
-    if not state._key_modifier_badge_dirty:
+    if not (state._dirty_flags & DirtyFlag.KEY_MODIFIER_BADGES):
         return
     state._key_modifier_badge_cache = {}
     effective = state._get_effective_modifiers()
@@ -368,7 +453,7 @@ def _compute_key_modifier_badges():
     for event_type, combos in key_mod_combos.items():
         state._key_modifier_badge_cache[event_type] = len(combos)
 
-    state._key_modifier_badge_dirty = False
+    state._dirty_flags &= ~DirtyFlag.KEY_MODIFIER_BADGES
 
 
 # ---------------------------------------------------------------------------
@@ -469,17 +554,17 @@ def _collect_all_operators():
     for cat in categories:
         categories[cat].sort(key=lambda x: x[1].lower())
     state._operator_list_categories = categories
-    state._operator_list_dirty = False
+    state._dirty_flags &= ~DirtyFlag.OPERATOR_LIST
 
 
 def _compute_bound_operators():
     """Compute the set of operator idnames that have active keybindings."""
-    if not state._operator_list_bound_ops_dirty:
+    if not (state._dirty_flags & DirtyFlag.OPERATOR_BOUND_OPS):
         return
     state._operator_list_bound_ops = set()
     for km, kmi in _iter_filtered_kmis(check_active=True, check_modifiers=False):
         state._operator_list_bound_ops.add(kmi.idname)
-    state._operator_list_bound_ops_dirty = False
+    state._dirty_flags &= ~DirtyFlag.OPERATOR_BOUND_OPS
 
 
 def _get_target_keymap_for_op(op_id):
@@ -512,6 +597,29 @@ def _create_new_binding(op_id, key_type, ctrl, shift, alt, oskey):
     _push_undo([new_kmi])
     state._invalidate_cache()
     return new_kmi
+
+
+_operator_desc_cache = {}
+
+
+def _get_operator_description(op_id):
+    """Return the description string for an operator, or empty string."""
+    if op_id in _operator_desc_cache:
+        return _operator_desc_cache[op_id]
+    desc = ""
+    try:
+        parts = op_id.split(".", 1)
+        if len(parts) == 2:
+            mod = getattr(bpy.ops, parts[0], None)
+            if mod:
+                op = getattr(mod, parts[1], None)
+                if op and hasattr(op, 'get_rna_type'):
+                    rna = op.get_rna_type()
+                    desc = rna.description or ""
+    except Exception:
+        pass
+    _operator_desc_cache[op_id] = desc
+    return desc
 
 
 def _remove_all_bindings_for_op(op_id):

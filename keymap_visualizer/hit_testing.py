@@ -48,6 +48,11 @@ def _hit_test_export(mx, my):
     return state._export_button_rect is not None and _point_in_rect(mx, my, state._export_button_rect)
 
 
+def _hit_test_import(mx, my):
+    """Returns True if click is on import button."""
+    return state._import_button_rect is not None and _point_in_rect(mx, my, state._import_button_rect)
+
+
 def _hit_test_conflict_buttons(mx, my):
     """Returns button index or -1."""
     for i, (label, action, x, y, w, h) in enumerate(state._conflict_button_rects):

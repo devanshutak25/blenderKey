@@ -2,17 +2,15 @@
 Keymap Visualizer – Blender operators and header draw function
 """
 
+import logging
+
 import bpy
 from . import state
+
+_log = logging.getLogger("keymap_visualizer.operators")
 from .layout import _compute_keyboard_layout
 from .drawing import _draw_callback
-from .handlers import (
-    _handle_idle, _handle_menu_open, _handle_capture,
-    _handle_conflict, _handle_search,
-    _handle_shortcut_search, _handle_preset_dropdown,
-    _handle_preset_name_input,
-    _handle_op_flyout, _handle_operator_search,
-)
+from .handlers import dispatch as _dispatch_event
 
 
 class WM_OT_keymap_viz_modal(bpy.types.Operator):
@@ -29,12 +27,12 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
         region_found = False
         for r in context.area.regions:
             if r.type == 'WINDOW':
-                print(f"[Keymap Visualizer] invoke: region {r.width}x{r.height}")
+                _log.debug("invoke: region %dx%d", r.width, r.height)
                 _compute_keyboard_layout(r.width, r.height)
                 region_found = True
                 break
         if not region_found:
-            print("[Keymap Visualizer] invoke: no WINDOW region found")
+            _log.debug("invoke: no WINDOW region found")
 
         # Register draw handler on the SpaceTextEditor
         state._draw_handle = bpy.types.SpaceTextEditor.draw_handler_add(
@@ -43,7 +41,7 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
 
         context.window_manager.modal_handler_add(self)
         context.area.tag_redraw()
-        print(f"[Keymap Visualizer] invoke: modal started, key_rects={len(state._key_rects)}")
+        _log.debug("invoke: modal started, key_rects=%d", len(state._key_rects))
 
         # Register watchdog timer to detect window close
         bpy.app.timers.register(_watchdog_timer, first_interval=0.5, persistent=True)
@@ -57,6 +55,7 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
                 self._cleanup(context)
                 return {'CANCELLED'}
         except ReferenceError:
+            _log.debug("Stale reference detected, cleaning up")
             self._cleanup(context)
             return {'CANCELLED'}
 
@@ -66,6 +65,7 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
                 self._cleanup(context)
                 return {'CANCELLED'}
         except ReferenceError:
+            _log.debug("Stale reference detected, cleaning up")
             self._cleanup(context)
             return {'CANCELLED'}
 
@@ -76,7 +76,7 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
                 with context.temp_override(window=self._target_window):
                     bpy.ops.wm.window_close()
             except Exception:
-                pass
+                _log.debug("Window close failed", exc_info=True)
             return {'CANCELLED'}
 
         # Force redraws while layout hasn't been computed yet.
@@ -85,55 +85,20 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
                 if state._target_area is not None:
                     state._target_area.tag_redraw()
             except ReferenceError:
-                pass
+                _log.debug("Stale reference detected, cleaning up")
 
         # Handle WINDOW_DEACTIVATE (Phase 7 hardening)
         if event.type == 'WINDOW_DEACTIVATE':
             try:
                 _ = self._target_window.screen
             except ReferenceError:
+                _log.debug("Stale reference detected, cleaning up")
                 self._cleanup(context)
                 return {'CANCELLED'}
             return {'PASS_THROUGH'}
 
-        # v0.9 Feature 6: Preset name input takes priority
-        if state._preset_name_input_active and state._modal_state == 'IDLE':
-            result = _handle_preset_name_input(context, event)
-            if result is not None:
-                return result
-
-        # v0.9 Feature 5: Shortcut search takes priority
-        if state._shortcut_search_active and state._modal_state == 'IDLE':
-            result = _handle_shortcut_search(context, event)
-            if result is not None:
-                return result
-
-        # Operator list search takes priority when active
-        if state._operator_list_search_active and state._modal_state == 'IDLE':
-            result = _handle_operator_search(context, event)
-            if result is not None:
-                return result
-
-        # Search mode takes priority when active (Phase 7)
-        if state._search_active and state._modal_state == 'IDLE':
-            result = _handle_search(context, event)
-            if result is not None:
-                return result
-
-        # State machine dispatch (Phase 5 + Feature 4 + v0.9 Feature 6)
-        if state._modal_state == 'MENU_OPEN':
-            return _handle_menu_open(context, event)
-        elif state._modal_state == 'CAPTURE':
-            return _handle_capture(context, event)
-        elif state._modal_state == 'CONFLICT':
-            return _handle_conflict(context, event)
-        elif state._modal_state == 'PRESET_DROPDOWN':
-            return _handle_preset_dropdown(context, event)
-        elif state._modal_state == 'OP_FLYOUT':
-            return _handle_op_flyout(context, event)
-
-        # IDLE state
-        result = _handle_idle(context, event)
+        # Dispatch through state machine (handlers.dispatch)
+        result = _dispatch_event(context, event)
         if result is not None:
             return result
 
@@ -144,7 +109,7 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
                 with context.temp_override(window=self._target_window):
                     bpy.ops.wm.window_close()
             except Exception:
-                pass
+                _log.debug("Window close failed", exc_info=True)
             return {'CANCELLED'}
 
         # Pass through everything else so the window stays responsive
@@ -157,7 +122,7 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
         try:
             bpy.types.SpaceTextEditor.draw_handler_remove(state._draw_handle, 'WINDOW')
         except Exception:
-            pass
+            _log.debug("Draw handler already removed", exc_info=True)
         state._reset_all_state()
         from .icons import cleanup_icons
         cleanup_icons()
@@ -170,23 +135,23 @@ class WM_OT_keymap_viz_modal(bpy.types.Operator):
                     if area.type == 'TEXT_EDITOR':
                         area.tag_redraw()
         except Exception:
-            pass
+            _log.debug("Redraw cleanup failed", exc_info=True)
 
 
 def _force_cleanup():
     """Force cleanup when the visualizer window is closed externally."""
-    print("[Keymap Visualizer] Watchdog: window closed, forcing cleanup")
+    _log.debug("Watchdog: window closed, forcing cleanup")
     if state._draw_handle is not None:
         try:
             bpy.types.SpaceTextEditor.draw_handler_remove(state._draw_handle, 'WINDOW')
         except Exception:
-            pass
+            _log.debug("Draw handler already removed", exc_info=True)
     state._reset_all_state()
     try:
         from .icons import cleanup_icons
         cleanup_icons()
     except Exception:
-        pass
+        _log.debug("Icon cleanup failed", exc_info=True)
     state._set_running(False)
     # Redraw text editors to clear stale overlay
     try:
@@ -195,7 +160,7 @@ def _force_cleanup():
                 if area.type == 'TEXT_EDITOR':
                     area.tag_redraw()
     except Exception:
-        pass
+        _log.debug("Redraw cleanup failed", exc_info=True)
 
 
 def _watchdog_timer():
@@ -208,6 +173,7 @@ def _watchdog_timer():
             _force_cleanup()
             return None
     except Exception:
+        _log.debug("Watchdog check failed", exc_info=True)
         _force_cleanup()
         return None
     return 0.5  # Check again in 0.5s
@@ -223,7 +189,7 @@ def _deferred_start_modal():
     try:
         wm = bpy.context.window_manager
     except Exception as e:
-        print(f"[Keymap Visualizer] Timer: context error: {e}")
+        _log.warning("Timer: context error: %s", e, exc_info=True)
         state._set_running(False)
         state._launch_window = None
         return None
@@ -231,12 +197,12 @@ def _deferred_start_modal():
     # Verify window still alive
     try:
         if window not in wm.windows[:]:
-            print("[Keymap Visualizer] Timer: window gone, aborting")
+            _log.debug("Timer: window gone, aborting")
             state._set_running(False)
             state._launch_window = None
             return None
     except ReferenceError:
-        print("[Keymap Visualizer] Timer: window reference stale, aborting")
+        _log.debug("Stale reference detected, cleaning up")
         state._set_running(False)
         state._launch_window = None
         return None
@@ -246,10 +212,10 @@ def _deferred_start_modal():
     if area.type != 'TEXT_EDITOR':
         state._launch_retry_count += 1
         if state._launch_retry_count < 10:
-            print(f"[Keymap Visualizer] Timer: area type is '{area.type}', "
-                  f"retry {state._launch_retry_count}/10")
+            _log.debug("Timer: area type is '%s', retry %d/10",
+                        area.type, state._launch_retry_count)
             return 0.1
-        print("[Keymap Visualizer] Timer: area type never became TEXT_EDITOR, aborting")
+        _log.debug("Timer: area type never became TEXT_EDITOR, aborting")
         state._set_running(False)
         state._launch_window = None
         return None
@@ -270,10 +236,10 @@ def _deferred_start_modal():
     if region is None:
         state._launch_retry_count += 1
         if state._launch_retry_count < 10:
-            print(f"[Keymap Visualizer] Timer: no WINDOW region, "
-                  f"retry {state._launch_retry_count}/10")
+            _log.debug("Timer: no WINDOW region, retry %d/10",
+                        state._launch_retry_count)
             return 0.1
-        print("[Keymap Visualizer] Timer: no WINDOW region found, aborting")
+        _log.debug("Timer: no WINDOW region found, aborting")
         state._set_running(False)
         state._launch_window = None
         return None
@@ -281,28 +247,26 @@ def _deferred_start_modal():
     if region.width == 0 or region.height == 0:
         state._launch_retry_count += 1
         if state._launch_retry_count < 10:
-            print(f"[Keymap Visualizer] Timer: region {region.width}x{region.height}, "
-                  f"retry {state._launch_retry_count}/10")
+            _log.debug("Timer: region %dx%d, retry %d/10",
+                        region.width, region.height, state._launch_retry_count)
             return 0.1
-        print("[Keymap Visualizer] Timer: region never got valid size, aborting")
+        _log.debug("Timer: region never got valid size, aborting")
         state._set_running(False)
         state._launch_window = None
         return None
 
-    print(f"[Keymap Visualizer] Timer: invoking modal "
-          f"(area={area.type}, region={region.width}x{region.height})")
+    _log.debug("Timer: invoking modal (area=%s, region=%dx%d)",
+               area.type, region.width, region.height)
 
     try:
         with bpy.context.temp_override(window=window, area=area, region=region):
             result = bpy.ops.wm.keymap_viz_modal('INVOKE_DEFAULT')
-        print(f"[Keymap Visualizer] Timer: modal invoke returned {result}")
+        _log.debug("Timer: modal invoke returned %s", result)
         if result != {'RUNNING_MODAL'}:
-            print("[Keymap Visualizer] Timer: modal did not start, aborting")
+            _log.debug("Timer: modal did not start, aborting")
             state._set_running(False)
     except Exception as e:
-        print(f"[Keymap Visualizer] Timer: failed to start modal: {e}")
-        import traceback
-        traceback.print_exc()
+        _log.warning("Timer: failed to start modal: %s", e, exc_info=True)
         state._set_running(False)
 
     state._launch_window = None
@@ -329,15 +293,15 @@ class WM_OT_keymap_viz_launch(bpy.types.Operator):
                 break
             op_func = getattr(bpy.ops.wm, op_name, None)
             if op_func is None:
-                print(f"[Keymap Visualizer] wm.{op_name} not available")
+                _log.debug("wm.%s not available", op_name)
                 continue
             try:
                 result = op_func()
-                print(f"[Keymap Visualizer] wm.{op_name}() -> {result}")
+                _log.debug("wm.%s() -> %s", op_name, result)
                 if 'FINISHED' in result:
                     win_created = True
             except Exception as e:
-                print(f"[Keymap Visualizer] wm.{op_name}() exception: {e}")
+                _log.warning("wm.%s() exception: %s", op_name, e, exc_info=True)
 
         if not win_created:
             state._set_running(False)
@@ -356,8 +320,8 @@ class WM_OT_keymap_viz_launch(bpy.types.Operator):
             return {'CANCELLED'}
 
         num_areas = len(new_window.screen.areas)
-        print(f"[Keymap Visualizer] New window has {num_areas} area(s), "
-              f"type='{new_window.screen.areas[0].type}'")
+        _log.debug("New window has %d area(s), type='%s'",
+                   num_areas, new_window.screen.areas[0].type)
         new_window.screen.areas[0].type = 'TEXT_EDITOR'
 
         state._launch_window = new_window
