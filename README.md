@@ -6,6 +6,9 @@ A visual keyboard-based keymap editor for Blender 5.0+. Browse, edit, rebind, se
 
 <!-- Add a screenshot here: ![blenderKey screenshot](docs/screenshot.png) -->
 
+<img width="3268" height="1215" alt="blender_OLXUgEh7rF" src="https://github.com/user-attachments/assets/7b4b73d3-99d6-4394-9749-4721b6921cfd" />
+
+
 ---
 
 ## Features
