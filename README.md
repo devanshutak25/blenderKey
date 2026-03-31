@@ -168,6 +168,8 @@ When a rebind conflicts with existing bindings:
 - Focus ring drawn on the currently focused key
 
 ### Category Color System
+<img width="1127" height="1320" alt="blender_nMHIr6LGG6" src="https://github.com/user-attachments/assets/ff16bbc2-8f1b-4916-9063-516c04df8660" />
+
 
 - **13 operator categories**: Transform, Navigation, Mesh, Object, Edit, Sculpt, Paint, UV, Nodes, Animation, Playback, File, System
 - Keys tinted by the category of their primary binding
