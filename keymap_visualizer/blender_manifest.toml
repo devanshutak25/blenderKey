@@ -1,10 +1,10 @@
 schema_version = "1.0.0"
 
 id = "keymap_visualizer"
-version = "1.0.0"
+version = "1.0.1"
 name = "Keymap Visualizer"
 tagline = "Visual keyboard-based keymap editor"
-maintainer = "Devanshu Tak <charutak.davc@gmail.com>"
+maintainer = "Devanshu Tak <blenderkey@devanshutak.xyz>"
 type = "add-on"
 
 website = "https://github.com/devanshutak25/blenderKey"

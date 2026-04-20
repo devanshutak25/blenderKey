@@ -129,7 +129,7 @@ Blender 5.1 or newer.
 | **Source code** | https://github.com/devanshutak25/blenderKey |
 | **Issue tracker** | https://github.com/devanshutak25/blenderKey/issues |
 | **Maintainer** | Devanshu Tak |
-| **Maintainer email** | charutak.davc@gmail.com |
+| **Maintainer email** | blenderkey@devanshutak.xyz |
 
 ---
 
