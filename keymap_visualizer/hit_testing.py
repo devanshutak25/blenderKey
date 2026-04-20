@@ -107,6 +107,11 @@ def _hit_test_export(mx, my):
     return state._export_button_rect is not None and _point_in_rect(mx, my, state._export_button_rect)
 
 
+def _hit_test_warning(mx, my):
+    """Returns True if click is on the safety-warning icon."""
+    return state._warning_button_rect is not None and _point_in_rect(mx, my, state._warning_button_rect)
+
+
 def _hit_test_import(mx, my):
     """Returns True if click is on import button."""
     return state._import_button_rect is not None and _point_in_rect(mx, my, state._import_button_rect)

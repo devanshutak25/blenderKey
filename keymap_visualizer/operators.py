@@ -278,7 +278,40 @@ class WM_OT_keymap_viz_launch(bpy.types.Operator):
     bl_label = "Open Keymap Visualizer"
     bl_description = "Open the keymap visualizer in a new window"
 
+    acknowledge: bpy.props.BoolProperty(
+        name="Don't show this again",
+        description="Remember your acknowledgement and skip this warning on future launches",
+        default=False,
+    )
+
+    def invoke(self, context, event):
+        try:
+            prefs = state._get_prefs()
+        except Exception:
+            prefs = None
+        if prefs is not None and getattr(prefs, "disclaimer_acknowledged", False):
+            return self.execute(context)
+        self.acknowledge = False
+        return context.window_manager.invoke_props_dialog(self, width=460)
+
+    def draw(self, context):
+        layout = self.layout
+        box = layout.box()
+        box.alert = True
+        col = box.column(align=True)
+        col.label(text="Back up your Blender preferences before continuing.", icon='ERROR')
+        col.separator()
+        col.label(text="Keymap Visualizer edits Blender keymaps in place. Keymap loss or corruption is possible, with no guaranteed way to restore them from within Blender.")
+        col.separator()
+        col.label(text="Copy userpref.blend (and any keyconfig files) from your Blender config folder so you can roll back if needed.")
+        layout.prop(self, "acknowledge")
+
     def execute(self, context):
+        if self.acknowledge:
+            try:
+                state._get_prefs().disclaimer_acknowledged = True
+            except Exception:
+                _log.debug("Could not persist disclaimer ack", exc_info=True)
         if state._visualizer_running:
             self.report({'WARNING'}, "Keymap Visualizer is already open in another window")
             return {'CANCELLED'}

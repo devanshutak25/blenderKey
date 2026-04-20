@@ -122,8 +122,13 @@ def _do_export():
         scope = prefs.export_scope
     except Exception:
         _log.debug("Could not read export preferences, using defaults", exc_info=True)
-        filepath = os.path.join(os.path.dirname(__file__), "exports", "custom_keymap.py")
+        filepath = ""
         scope = 'MODIFIED'
+
+    if not filepath:
+        filepath = os.path.join(
+            bpy.utils.user_resource('CONFIG'), "keymap_exports", "custom_keymap.py"
+        )
 
     try:
         data = _generate_keyconfig_data(scope)

@@ -2,7 +2,6 @@
 Keymap Visualizer – Addon Preferences
 """
 
-import os as _os
 import bpy
 from bpy.props import StringProperty, EnumProperty, FloatVectorProperty, BoolProperty
 from . import state
@@ -11,8 +10,6 @@ from .constants import (
     BASE_ACCENT, BASE_BACKGROUND, BASE_SURFACE, BASE_TEXT,
     BASE_SUCCESS, BASE_WARNING, BASE_DANGER, BASE_INFO,
 )
-
-_addon_dir = _os.path.dirname(_os.path.abspath(__file__))
 
 
 def _invalidate(self, ctx):
@@ -28,6 +25,18 @@ def _invalidate_layout(self, ctx):
 
 class KeymapVizPreferences(bpy.types.AddonPreferences):
     bl_idname = __package__
+
+    # --- Safety disclaimer ---
+    disclaimer_acknowledged: BoolProperty(
+        name="I understand the risks",
+        description="Hide the launch-time safety warning. Turn this back off to see the warning again",
+        default=False,
+    )
+    first_run_seen: BoolProperty(
+        name="First-run notice seen",
+        description="Internal flag — tracks whether the one-time install notice has been shown",
+        default=False,
+    )
 
     # --- Keyboard Layout ---
     keyboard_logical_layout: EnumProperty(
@@ -75,7 +84,7 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
         name="Export Path",
         description="Where to save exported keymap files (.py format, importable back into Blender)",
         subtype='FILE_PATH',
-        default=_os.path.join(_addon_dir, "exports", "custom_keymap.py"),
+        default="",
     )
     export_scope: EnumProperty(
         name="Export Scope",
@@ -416,13 +425,23 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
     # --- Presets ---
     presets_directory: StringProperty(
         name="Presets Folder",
-        description="Where to save your preset JSON files. Change this if you want to sync presets via cloud storage",
+        description="Where to save your preset JSON files. Leave empty to use Blender's user config folder. Change this if you want to sync presets via cloud storage",
         subtype='DIR_PATH',
-        default=_os.path.join(_addon_dir, "presets"),
+        default="",
     )
 
     def draw(self, context):
         layout = self.layout
+
+        # Safety warning — always visible, red alert styling
+        warn = layout.box()
+        warn.alert = True
+        col = warn.column(align=True)
+        col.label(text="Warning — keymap data is sensitive.", icon='ERROR')
+        col.label(text="This add-on edits Blender keymaps in place. Keymap loss or corruption is possible, with no guaranteed way to restore them from within Blender.")
+        col.separator()
+        col.label(text="Back up your Blender preferences (userpref.blend and any keyconfig files in your Blender config folder) before using this add-on.")
+        warn.prop(self, "disclaimer_acknowledged")
 
         # Keyboard Layout
         box = layout.box()

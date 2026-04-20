@@ -97,6 +97,11 @@ _flyout_pending_index = -1  # which main menu item we're waiting to open flyout 
 _export_button_rect = None  # (x, y, w, h)
 _export_hovered = False
 
+# Safety warning icon (left of export)
+_warning_button_rect = None  # (x, y, w, h)
+_warning_hovered = False
+_warning_pinned = False  # click to pin the warning shown in the info panel
+
 # Import button
 _import_button_rect = None  # (x, y, w, h)
 _import_hovered = False
@@ -270,6 +275,7 @@ def _reset_all_state():
     global _modal_state, _conflict_hovered_button, _gpu_menu_hovered
     global _gpu_flyout_hovered, _flyout_hover_timer, _flyout_target_index, _flyout_pending_index
     global _export_button_rect, _export_hovered
+    global _warning_button_rect, _warning_hovered, _warning_pinned
     global _import_button_rect, _import_hovered
     global _search_text, _search_active, _search_matching_keys, _search_results_count, _search_last_update
     global _dirty_flags, _hover_transition, _hover_transition_target, _last_frame_time
@@ -339,6 +345,9 @@ def _reset_all_state():
     _flyout_target_index = -1
     _flyout_pending_index = -1
     _export_button_rect = None
+    _warning_button_rect = None
+    _warning_hovered = False
+    _warning_pinned = False
     _export_hovered = False
     _import_button_rect = None
     _import_hovered = False

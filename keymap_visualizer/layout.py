@@ -170,10 +170,17 @@ def _compute_keyboard_layout(region_width, region_height):
     close_btn_size = toolbar_h
 
     all_max_x = max(kr.x + kr.w for kr in state._key_rects)
-    total_toolbar_w = export_btn_w + btn_gap + import_btn_w + btn_gap + presets_btn_w + btn_gap + close_btn_size
+    warning_btn_w = toolbar_h  # square icon button
+    total_toolbar_w = (
+        warning_btn_w + btn_gap
+        + export_btn_w + btn_gap + import_btn_w + btn_gap + presets_btn_w + btn_gap
+        + close_btn_size
+    )
     toolbar_x = all_max_x - total_toolbar_w
 
     x = toolbar_x
+    state._warning_button_rect = (x, toolbar_y, warning_btn_w, toolbar_h)
+    x += warning_btn_w + btn_gap
     state._export_button_rect = (x, toolbar_y, export_btn_w, toolbar_h)
     x += export_btn_w + btn_gap
     state._import_button_rect = (x, toolbar_y, import_btn_w, toolbar_h)

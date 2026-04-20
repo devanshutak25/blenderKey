@@ -11,8 +11,6 @@ from . import state
 
 _log = logging.getLogger("keymap_visualizer")
 
-MIN_BLENDER_VERSION = (5, 1, 0)
-
 _classes = (
     KeymapVizPreferences,
     WM_OT_keymap_viz_modal,
@@ -20,33 +18,53 @@ _classes = (
 )
 
 
-def _check_blender_version():
-    if bpy.app.version < MIN_BLENDER_VERSION:
-        current = ".".join(str(v) for v in bpy.app.version)
-        required = ".".join(str(v) for v in MIN_BLENDER_VERSION)
-        msg = (
-            f"Keymap Visualizer requires Blender {required}+ "
-            f"(running {current}). Some features may not work."
+def _first_run_notice():
+    """Show a one-time popup warning about keymap data safety.
+
+    Scheduled from register() via bpy.app.timers because popup_menu needs a
+    valid window-manager context that isn't available during class registration.
+    """
+    try:
+        from . import state
+        prefs = state._get_prefs()
+    except Exception:
+        _log.debug("First-run: could not read preferences", exc_info=True)
+        return None
+    if prefs is None or getattr(prefs, "first_run_seen", True):
+        return None
+
+    def _draw(self, _context):
+        col = self.layout.column(align=True)
+        col.label(text="Keymap Visualizer is installed.", icon='CHECKMARK')
+        col.separator()
+        col.label(text="Keymaps are sensitive user data.", icon='ERROR')
+        col.label(text="This add-on edits Blender keymaps in place. Keymap loss or corruption is possible, with no guaranteed way to restore them from within Blender.")
+        col.separator()
+        col.label(text="Back up userpref.blend and any keyconfig files from your Blender config folder before making changes.")
+        col.separator()
+        col.label(text="You can review this notice anytime under Edit > Preferences > Add-ons > Keymap Visualizer.")
+
+    try:
+        bpy.context.window_manager.popup_menu(
+            _draw,
+            title="Keymap Visualizer — Please read before use",
+            icon='ERROR',
         )
-        _log.warning(msg)
-        try:
-            def _draw(self, _context):
-                self.layout.label(text=msg, icon='ERROR')
-            bpy.context.window_manager.popup_menu(
-                _draw, title="Keymap Visualizer – Unsupported Blender Version",
-                icon='ERROR',
-            )
-        except Exception:
-            _log.debug("Could not show popup warning", exc_info=True)
-        return False
-    return True
+        prefs.first_run_seen = True
+    except Exception:
+        _log.debug("First-run: popup failed, will retry on next enable", exc_info=True)
+    return None
 
 
 def register():
-    _check_blender_version()
     for cls in _classes:
         bpy.utils.register_class(cls)
     bpy.types.TOPBAR_MT_edit.append(_draw_header_button)
+    # Show a one-time warning popup on first install/enable.
+    try:
+        bpy.app.timers.register(_first_run_notice, first_interval=0.5)
+    except Exception:
+        _log.debug("Could not schedule first-run notice", exc_info=True)
 
 
 def unregister():

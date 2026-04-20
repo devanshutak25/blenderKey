@@ -14,16 +14,20 @@ from .export import _generate_keyconfig_data
 
 
 def _get_presets_dir():
-    """Return absolute path to presets directory, creating it if needed."""
+    """Return absolute path to presets directory, creating it if needed.
+
+    When the user has not set a preset directory preference, fall back to
+    Blender's user config folder (never the addon's install directory —
+    modifying the addon directory is disallowed by the extensions platform).
+    """
+    raw = ""
     try:
         prefs = state._get_prefs()
-        raw = prefs.presets_directory
+        raw = prefs.presets_directory or ""
     except Exception:
         _log.debug("Could not read presets directory preference", exc_info=True)
-        raw = os.path.join(os.path.dirname(__file__), "presets")
-    abs_path = bpy.path.abspath(raw)
-    if not abs_path or abs_path == raw:
-        # Fallback to user config dir
+    abs_path = bpy.path.abspath(raw) if raw else ""
+    if not abs_path:
         abs_path = os.path.join(bpy.utils.user_resource('CONFIG'), "keymap_presets")
     os.makedirs(abs_path, exist_ok=True)
     return abs_path

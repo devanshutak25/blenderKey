@@ -24,3 +24,11 @@ copyright = [
 
 [permissions]
 files = "Export keymap configurations and save/load presets to disk"
+clipboard = "Copy and paste keymap presets as JSON via the system clipboard"
+
+[build]
+paths_exclude_pattern = [
+  "__pycache__/",
+  "*.pyc",
+  "profiler.py",
+]

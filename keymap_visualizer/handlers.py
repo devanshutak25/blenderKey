@@ -8,9 +8,22 @@ from . import state
 
 _log = logging.getLogger("keymap_visualizer.handlers")
 from .state import DirtyFlag, BINDING_FLAGS, KEYMAP_MUTATION_FLAGS
-from .profiler import prof
+try:
+    from .profiler import prof
+except ImportError:
+    # profiler.py is dev-only; excluded from the packaged extension
+    from contextlib import nullcontext as _nullcontext
+    class _NoopProf:
+        enabled = False
+        auto_report_interval = 0
+        def __call__(self, _name): return _nullcontext()
+        def begin_frame(self): pass
+        def end_frame(self): pass
+        def reset(self): pass
+        def report(self): pass
+    prof = _NoopProf()
 from .hit_testing import (
-    _hit_test_key, _hit_test_export, _hit_test_import,
+    _hit_test_key, _hit_test_export, _hit_test_import, _hit_test_warning,
     _hit_test_conflict_buttons, _hit_test_gpu_menu, _hit_test_flyout,
     _hit_test_close, _hit_test_resize,
     _hit_test_editor_list, _hit_test_mode_list,
@@ -324,6 +337,7 @@ def _handle_idle(context, event):
         mx, my = event.mouse_region_x, event.mouse_region_y
         new_hover = _hit_test_key(mx, my)
         new_export_hover = _hit_test_export(mx, my)
+        new_warning_hover = _hit_test_warning(mx, my)
         new_import_hover = _hit_test_import(mx, my)
         new_close_hover = _hit_test_close(mx, my)
         new_resize_hover = _hit_test_resize(mx, my)
@@ -336,6 +350,9 @@ def _handle_idle(context, event):
             changed = True
         if new_export_hover != state._export_hovered:
             state._export_hovered = new_export_hover
+            changed = True
+        if new_warning_hover != state._warning_hovered:
+            state._warning_hovered = new_warning_hover
             changed = True
         if new_import_hover != state._import_hovered:
             state._import_hovered = new_import_hover
@@ -470,6 +487,17 @@ def _handle_idle(context, event):
             state._modal_state = 'PRESET_DROPDOWN'
             _tag_redraw()
             return {'RUNNING_MODAL'}
+
+        # Check safety-warning icon — click to pin the warning in the info panel
+        if _hit_test_warning(mx, my):
+            state._warning_pinned = not state._warning_pinned
+            _tag_redraw()
+            return {'RUNNING_MODAL'}
+
+        # Clicking anywhere else unpins the warning
+        if state._warning_pinned:
+            state._warning_pinned = False
+            _tag_redraw()
 
         # Check export button
         if _hit_test_export(mx, my):

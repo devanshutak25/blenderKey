@@ -1,5 +1,9 @@
 # blenderKey — Keymap Visualizer for Blender
 
+> [!WARNING]
+> **Back up your Blender preferences before using this add-on.**
+> Keymaps are sensitive user data and Blender provides limited safeguards around them. This add-on edits your keymaps in place — there is a real possibility of keymap loss or corruption, with no guaranteed way for users to restore them from within Blender. Before using this add-on, copy your `userpref.blend` (and any `keyconfig` files) from your Blender config folder so you can roll back if anything goes wrong.
+
 Blender's shortcut system is powerful, but the built-in keymap editor makes you dig through nested menus to find anything. **blenderKey** shows you the whole keyboard on one screen: every shortcut on every key, color-coded, searchable, rebindable with a right-click.
 
 Hover a key to see what it does. Click once to lock it. Right-click to change it. Press a shortcut to jump to the key that owns it. Save your setup as a preset and share it with your team.

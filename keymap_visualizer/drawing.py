@@ -14,7 +14,20 @@ from gpu_extras.batch import batch_for_shader
 
 from . import state
 from .state import DirtyFlag
-from .profiler import prof
+try:
+    from .profiler import prof
+except ImportError:
+    # profiler.py is dev-only; excluded from the packaged extension
+    from contextlib import nullcontext as _nullcontext
+    class _NoopProf:
+        enabled = False
+        auto_report_interval = 0
+        def __call__(self, _name): return _nullcontext()
+        def begin_frame(self): pass
+        def end_frame(self): pass
+        def reset(self): pass
+        def report(self): pass
+    prof = _NoopProf()
 
 _log = logging.getLogger("keymap_visualizer.drawing")
 from dataclasses import dataclass
@@ -232,6 +245,8 @@ def _get_colors():
         'menu_border': _add_lightness(surface, 0.15),
         # Overlays
         'capture_overlay': (0.0, 0.0, 0.0, 0.6),
+        'warning': warning,
+        'danger': danger,
         'capture_text': warning,
         'conflict_bg': _add_lightness(background, -0.02),
         'conflict_header': danger,
@@ -1743,6 +1758,18 @@ def _draw_toolbar(ctx, kb_bounds):
     lb = ctx.lb
 
     # --- F2. Toolbar buttons (batched) ---
+    # Safety-warning icon (left of export)
+    if state._warning_button_rect is not None:
+        wx, wy, ww, wh = state._warning_button_rect
+        if state._warning_pinned:
+            w_col = colors['danger']
+        elif state._warning_hovered:
+            w_col = _lerp_color(colors['warning'], colors['danger'], 0.35)
+        else:
+            w_col = colors['warning']
+        rb.add(wx, wy, ww, wh, w_col)
+        lb.add(wx, wy, ww, wh, colors['border'])
+
     if state._export_button_rect is not None:
         ex, ey, ew, eh = state._export_button_rect
         ex_col = colors['export_button_hover'] if state._export_hovered else colors['export_button']
@@ -1797,6 +1824,17 @@ def _draw_toolbar(ctx, kb_bounds):
     lb.flush(ctx.shader_smooth)
 
     # --- All toolbar text (after flush) ---
+    # Safety-warning "!" glyph
+    if state._warning_button_rect is not None and unit_px >= 16:
+        wx, wy, ww, wh = state._warning_button_rect
+        wlabel = "!"
+        wsize = max(font_base, int(wh * 0.55))
+        blf.size(font_id, wsize)
+        blf.color(font_id, 0.0, 0.0, 0.0, 1.0)
+        twx, twy = blf.dimensions(font_id, wlabel)
+        blf.position(font_id, wx + (ww - twx) / 2, wy + (wh - twy) / 2, 0)
+        blf.draw(font_id, wlabel)
+
     if state._export_button_rect is not None and unit_px >= 20:
         ex, ey, ew, eh = state._export_button_rect
         blf.size(font_id, font_sm)
@@ -2034,8 +2072,48 @@ def _draw_info_panel(ctx, kb_bounds):
     # Store rect for hit testing (Issue #3)
     state._info_panel_rect = (info_x, info_y, info_w, info_h)
 
-    active_idx = state._selected_key_index if state._selected_key_index >= 0 else state._hovered_key_index
+    # Safety warning takes priority over key bindings (hover or pinned via the toolbar icon)
+    show_warning = state._warning_hovered or state._warning_pinned
+    active_idx = -1 if show_warning else (state._selected_key_index if state._selected_key_index >= 0 else state._hovered_key_index)
     info_font_size = font_base
+
+    if show_warning:
+        # Danger stripe on the left edge
+        rb.add(info_x, info_y, 2, info_h, colors['danger'])
+        rb.flush(ctx.shader_smooth)
+        lb.flush(ctx.shader_smooth)
+        state._info_panel_max_scroll = 0
+        # Header
+        header_font_size = font_lg
+        header_x = info_x + sp5
+        header_y = info_y + info_h - header_font_size - sp3
+        blf.size(font_id, header_font_size)
+        blf.color(font_id, *colors['danger'])
+        blf.position(font_id, header_x, header_y, 0)
+        blf.draw(font_id, "Safety warning")
+        # Body paragraphs
+        blf.size(font_id, info_font_size)
+        lines = [
+            "Keymaps are sensitive user data and Blender provides limited",
+            "safeguards. This add-on edits them in place — loss or corruption",
+            "is possible, with no guaranteed in-Blender recovery path.",
+            "",
+            "Back up userpref.blend and any keyconfig files from your",
+            "Blender config folder before making changes.",
+            "",
+            "Click the icon again to dismiss." if state._warning_pinned else "Click the icon to pin this message.",
+        ]
+        line_h = info_font_size + sp3
+        ly = header_y - sp3 - line_h
+        for line in lines:
+            if ly < info_y + sp3:
+                break
+            display_line, _, _ = _truncate_text(font_id, line, info_w - sp5 * 2)
+            blf.color(font_id, *colors['text'] if line else colors['text_dim'])
+            blf.position(font_id, header_x, ly, 0)
+            blf.draw(font_id, display_line)
+            ly -= line_h
+        return
 
     if 0 <= active_idx < len(state._key_rects):
         rb.add(info_x, info_y, 2, info_h, colors['key_selected'])

@@ -28,6 +28,10 @@ See every Blender shortcut on a full-size interactive keyboard. Hover a key to p
 *(markdown, shown on the extension's page)*
 
 ```markdown
+> [!WARNING]
+> **Back up your Blender preferences before using this add-on.**
+> Keymaps are sensitive user data and Blender provides limited safeguards around them. This add-on edits your keymaps in place — there is a real possibility of keymap loss or corruption, with no guaranteed way for users to restore them from within Blender. Before using this add-on, copy your `userpref.blend` (and any `keyconfig` files) from your Blender config folder so you can roll back if anything goes wrong.
+
 ## What it does
 
 Blender's shortcut system is powerful, but the built-in keymap editor makes you dig through nested menus to find anything. Keymap Visualizer shows you the whole keyboard on one screen: every shortcut on every key, color-coded, searchable, rebindable with a right-click.
