@@ -1,294 +1,271 @@
-# blenderKey
+# blenderKey — Keymap Visualizer for Blender
 
-A visual keyboard-based keymap editor for Blender 5.0+. Browse, edit, rebind, search, and export your keybindings through a GPU-rendered keyboard overlay — no digging through the built-in preferences panel. *Completely vibecoded using Claude Code.*
+Blender's shortcut system is powerful, but the built-in keymap editor makes you dig through nested menus to find anything. **blenderKey** shows you the whole keyboard on one screen: every shortcut on every key, color-coded, searchable, rebindable with a right-click.
 
-![Blender](https://img.shields.io/badge/Blender-5.0%2B-orange) ![License](https://img.shields.io/badge/license-MIT-blue)
+Hover a key to see what it does. Click once to lock it. Right-click to change it. Press a shortcut to jump to the key that owns it. Save your setup as a preset and share it with your team.
 
-<!-- Add a screenshot here: ![blenderKey screenshot](docs/screenshot.png) -->
+> *Completely vibecoded using Claude Code.*
+
+![Blender](https://img.shields.io/badge/Blender-5.1%2B-orange) ![License](https://img.shields.io/badge/license-MIT-blue)
 
 <img width="3268" height="1215" alt="blender_OLXUgEh7rF" src="https://github.com/user-attachments/assets/7b4b73d3-99d6-4394-9749-4721b6921cfd" />
 
+---
+
+## Why use it?
+
+- **See every shortcut at a glance.** The whole keyboard is rendered on-screen with each key colored by what it does.
+- **Rebind without hunting.** Right-click any key, pick a binding, press a new combo. Done.
+- **Find keys by shortcut.** Press `?` then the combo — the key highlights and the panel shows its bindings.
+- **Find shortcuts by name.** Press `/` and start typing. Matching keys stay bright, others dim.
+- **See what you've changed.** Press `D` and Blender defaults appear in red/green/neutral.
+- **Undo anything.** Up to 50 steps, `Ctrl+Z` like you'd expect.
+- **Save your setup.** Presets as JSON, export as a Blender `.py` keyconfig, or paste from clipboard.
 
 ---
 
-## Features
+## The keyboard
 
-### Visual Keyboard
+A GPU-rendered keyboard with drop shadows and smooth hover animations. It's not a screenshot — it's interactive.
 
-- Full GPU-rendered keyboard with drop shadows, hover transitions, and smooth animations
-- **6 form factors**: Full Size (100%), Compact Full (96%), TKL (80%), 75%, 65%, 60%
-- **2 physical layouts**: ANSI and ISO (with proper ISO Enter shape)
-- **7 logical layouts**: Auto-detect, QWERTY, AZERTY, QWERTZ, Dvorak, Colemak, Nordic
-- Auto-detects your OS keyboard layout on launch
-- All keyboard sections rendered: alphanumeric block, navigation cluster, numpad, function row, and a mouse block (LMB/RMB/MMB)
-- Resizable keyboard — drag the resize handle to scale from 0.5x to 3.0x
+- **6 sizes**: 100% full, 96% compact, 80% TKL, 75%, 65%, 60%
+- **2 physical layouts**: ANSI or ISO (proper ISO Enter shape)
+- **7 logical layouts**: auto-detect your OS, or force QWERTY / AZERTY / QWERTZ / Dvorak / Colemak / Nordic
+- **Resizable**: drag the handle, scale 0.5× to 3×
+- **All the keys**: alphanumeric, navigation cluster, numpad, function row, mouse buttons (LMB/RMB/MMB)
 
-### Key Visual States
+### What key colors mean
 
-Keys change appearance based on context:
+Each key changes appearance based on what's happening:
 
-- **Unbound** — default surface color
-- **Bound** — highlighted to indicate active bindings
-- **Category-colored** — tinted by operator category (Transform, Mesh, Navigation, etc.)
-- **Hovered** — animated transition on mouse-over
-- **Selected** — accent-colored when clicked/locked
-- **Modifier-active** — physical modifier keys pulse at 2Hz when held
-- **Search dimming** — non-matching keys dim to 30% during search
-- **Diff mode** — green for modified bindings, red for deactivated, dimmed for unmodified
-- **Rebind flash** — brief green flash on successful rebind
+- **Unbound** — plain surface
+- **Bound** — highlighted
+- **Category-colored** — tinted by what it does (Transform = amber, Navigation = teal, Mesh = purple, etc.)
+- **Hovered** — soft animated transition
+- **Selected** — accent color when clicked
+- **Modifier-active** — Ctrl/Shift/Alt/OS keys pulse at 2Hz when you hold them physically
+- **Dimmed** — during search, non-matches fade to 30%
+- **Diff mode** — green for modified bindings, red for deactivated, dim for untouched
+- **Rebind flash** — green pulse when you successfully reassign a key
 
-### Key Badges and Labels
+### Badges on each key
 
-- **Key label** (top-left) — physical key name (e.g., "G", "Tab", "F5")
-- **Command label** (bottom) — abbreviated operator name for the primary binding (e.g., "Move", "Extrude", "Loop Cut") using 80 built-in abbreviations
-- **Modifier count badge** (bottom-right) — shows how many additional modifier combos have bindings beyond current modifiers
-- **Drag badge** (top-right, amber "D") — appears on keys with click-drag bindings
-- WCAG-aware adaptive light/dark text based on background luminance
+- **Top-left** — the physical key name (`G`, `Tab`, `F5`)
+- **Bottom** — the primary operator, abbreviated (`Move`, `Extrude`, `Loop Cut`) using 80 built-in shorthand labels
+- **Bottom-right** — count of other modifier combos that also have bindings
+- **Top-right "D"** — shown when the key has click-drag bindings
 
-### Modifier Toggle Bar
-
-- Four virtual modifier toggles: **Ctrl**, **Shift**, **Alt**, **OS/Win**
-- Click to toggle on/off — filters visible bindings to that modifier combo
-- Physically pressing modifier keys on your keyboard overrides the toggles automatically
-
-### Info Panel
-
-Shows detailed binding information for the hovered or selected key:
-
-- **Header** with key label and active filter summary
-- **Binding list** — each entry shows modifier prefix, activation state, operator name, editor icon, and keymap name
-- **Grouped bindings** — same operator across multiple keymaps collapses into expandable groups with arrow indicators and editor count
-- **Operator descriptions** — shown when a group is expanded
-- **Modal shortcuts** — hardcoded hints for modal operators (e.g., "G G → Edge Slide", "S S → Shrink-Fatten", "R R → Trackball")
-- **Scrollable** — mouse wheel or middle-drag to scroll, with scrollbar and fade gradients
-- **Idle hints** — when no key is selected, shows contextual help and button tooltips
-
-### Editor and Mode Filters
-
-Two scrollable filter panels to scope which keymaps are displayed:
-
-- **Editor filter** — All Editors, Global, 3D Viewport, Image/UV, Node Editor, Text Editor, Sequencer, Clip Editor, Dopesheet, Graph Editor, NLA, Properties, Outliner, Console, Spreadsheet
-- **Mode filter** — All Modes, Object Mode, Edit Mesh, Sculpt, Pose, Weight Paint, Vertex Paint, Texture Paint, Grease Pencil, Curves
-- Multi-select — any combination of filters active simultaneously
-- Each item shows its icon from the texture atlas
-
-### Operator Browser
-
-A categorized, searchable accordion panel listing all Blender operators:
-
-- **13 category groups** — Transform, Navigation, Mesh, Object, Edit, Sculpt, Paint, UV, Nodes, Animation, Playback, File, System — each collapsible with colored sidebar swatch and item count
-- **Search box** — type to filter operators by name or idname; all categories auto-expand during search
-- **Blue dot indicator** — marks operators that have active bindings
-- Click any operator to open a flyout menu with:
-  - **Assign Shortcut** — enter capture mode to bind a new key
-  - **View Bindings** — jump to the key this operator is bound to
-  - **Remove All Bindings** — deactivate all bindings for this operator (undoable)
-  - **Open in Preferences** — jump to Blender's built-in keymap preferences
-
-### Context Menu (Right-Click Editing)
-
-Right-click any key to open a context menu listing its bindings (up to 5):
-
-- Hover a binding to open a flyout sub-menu with:
-  - **Rebind** — enter capture mode to assign a new key combo
-  - **Unbind** / **Enable** — toggle the binding on or off
-  - **Reset to Default** — restore Blender's original binding
-  - **Toggle On/Off** — activate or deactivate
-- All operations are undoable
-
-### Capture Mode (Key Rebinding)
-
-Triggered from "Rebind" or "Assign Shortcut":
-
-- All keys dim except the target key, which pulses with an animated border
-- Prompt text: "Press new key combination…" with "ESC to cancel"
-- Press any key combo (with any Ctrl/Shift/Alt/OS modifiers) to set the new binding
-- Supports letters, digits, F1–F24, Tab, Enter, Space, Backspace, Delete, Insert, Home, End, Page Up/Down, arrows, numpad, punctuation, and more
-- **Conflict detection** — if the new combo conflicts, the conflict resolution dialog appears
-
-### Conflict Resolution
-
-When a rebind conflicts with existing bindings:
-
-- Centered modal panel with "Key Conflict" header
-- Shows the rebind being attempted and lists conflicting bindings
-- Three options:
-  - **Swap** — move conflicting bindings to the old key
-  - **Override** — apply the new binding and deactivate conflicts
-  - **Cancel** — dismiss without changes
-
-### Search
-
-- **Operator search** (`/` or `Ctrl+F`) — token-based fuzzy matching filters keys by operator name. Matching keys stay bright; non-matching dim to 30%. Shows result count badge.
-- **Shortcut reverse-lookup** (`?` or `Shift+/`) — press any key combo to instantly jump to that key and show its bindings in the info panel
-
-### Diff View
-
-- Toggle with `D` — compares your keyconfig against Blender defaults
-- **Green keys** — modified bindings
-- **Red keys** — deactivated bindings
-- **Dimmed keys** — unmodified bindings
-- "DIFF" badge shown in toolbar when active
-
-### Undo / Redo
-
-- Up to **50 undo levels** for all keymap changes
-- `Ctrl+Z` to undo, `Ctrl+Shift+Z` to redo
-- Undo counter displayed in the toolbar: "Undo: N | Redo: N"
-- Every mutation (rebind, unbind, reset, toggle, preset load, import) pushes an undo snapshot
-
-### Presets
-
-- **Save As…** — name and save your full keyconfig as a JSON preset
-- **Load** — click any saved preset to apply it (pushes undo snapshot first)
-- **Delete** — remove the active preset
-- **Copy to Clipboard** — copy preset JSON to clipboard
-- **Paste from Clipboard** — import a preset from clipboard and apply it
-- Presets stored as JSON files in a configurable directory
-
-### Export
-
-- Export keybindings as a Blender-importable `.py` keyconfig script
-- **Export scope**: modified-only (default) or full keyconfig dump
-- Output path configurable in addon preferences
-- Generated script is compatible with `keyconfig_import_from_data`
-
-### Import
-
-- Import a previously exported `.py` keyconfig file
-- Uses safe parsing (`ast.literal_eval`) — no code execution
-- Applies bindings by matching operator idname in each keymap
-- Import path configurable in addon preferences
-
-### Keyboard Navigation (Accessibility)
-
-- `Tab` / `Shift+Tab` — cycle focus between panels: Keys → Editor List → Mode List → Operator List → Info Panel
-- **Arrow keys** — navigate the keyboard layout row-by-row, or scroll filter lists
-- **Enter** — select/deselect key, or toggle filter item
-- Focus ring drawn on the currently focused key
-
-### Category Color System
-<img width="1127" height="1320" alt="blender_nMHIr6LGG6" src="https://github.com/user-attachments/assets/ff16bbc2-8f1b-4916-9063-516c04df8660" />
-
-
-- **13 operator categories**: Transform, Navigation, Mesh, Object, Edit, Sculpt, Paint, UV, Nodes, Animation, Playback, File, System
-- Keys tinted by the category of their primary binding
-- Color legend displayed above the keyboard
-- Toggle on/off globally; each category color individually customizable
-
-### Theming
-
-- **8 base color tokens**: Accent, Background, Surface, Text, Success, Warning, Danger, Info — all other colors derived from these
-- **13 category colors** — individually configurable
-- **29 advanced color overrides** — fine-tune specific UI elements (keys, panels, menus, buttons, search, capture overlay, etc.) with per-element enable toggle + color picker
-- WCAG-aware contrast defaults
-
-### Font Customization
-
-- **Key label font** — configurable TTF path (falls back to Blender's bundled font)
-- **Command label font** — configurable TTF path (falls back to bundled Roboto Condensed)
-
-### Icon System
-
-- 25 editor and mode icons loaded from PNG files and packed into a single GPU texture atlas for efficient batched rendering
-- Icons appear in filter lists, binding entries, and context menus
+Text color adapts to background luminance (WCAG-aware) so labels stay readable on any theme.
 
 ---
 
-## Keyboard Shortcuts
+## Info panel
 
-| Key | Action |
-|-----|--------|
-| `ESC` | Close visualizer / cancel current action |
-| `/` or `Ctrl+F` | Open operator search bar |
-| `?` (`Shift+/`) | Open shortcut reverse-lookup |
-| `D` | Toggle diff view mode |
-| `Ctrl+Z` | Undo last keymap change |
-| `Ctrl+Shift+Z` | Redo |
-| `Tab` / `Shift+Tab` | Cycle focus between panels |
-| Arrow keys | Navigate keys / scroll lists |
-| `Enter` | Select key / toggle filter item |
-| `Enter` (in search) | Commit search filter |
-| `ESC` (in search) | Clear and close search bar |
-| Left-click | Select key / click UI elements |
-| Right-click | Open context menu on a key |
+Pick a key — the right-hand panel shows everything bound to it:
 
-## Mouse Interactions
+- Every binding with its modifier prefix, operator name, editor icon, and keymap
+- Same operator in multiple keymaps? Grouped into one expandable row
+- Expand a group to see operator descriptions
+- Modal shortcut hints for chain combos (`G G → Edge Slide`, `S S → Shrink-Fatten`, `R R → Trackball`)
+- Scrollable — wheel or middle-drag, with a real scrollbar and fade gradients
 
-| Interaction | Result |
-|-------------|--------|
-| Left-click key | Select/deselect key; show bindings in info panel |
-| Left-click modifier key | Toggle that modifier on/off |
-| Right-click key | Open context menu with bindings |
-| Left-click Export | Export keymap to .py file |
-| Left-click Import | Import keymap from .py file |
-| Left-click Presets | Open preset dropdown |
-| Left-click Close (X) | Close the visualizer |
-| Left-drag resize handle | Scale the keyboard up/down |
-| Mouse wheel (on any panel) | Scroll that panel's content |
-| Middle-drag (on any panel) | Drag-scroll that panel |
+Nothing selected? The panel shows contextual help and tooltips instead.
 
 ---
 
-## Installation
+## Filters
 
-1. Download or clone this repository
-2. In Blender: **Edit > Preferences > Add-ons**
-3. Click **Install...** and select the `keymap_visualizer` folder (or zip it first)
-4. Enable **Keymap Visualizer** in the addon list
+Two side panels to narrow down what you see:
 
-Or copy the `keymap_visualizer` folder directly into your addons directory:
+- **Editors** — All, Global, 3D Viewport, Image/UV, Node Editor, Text Editor, Sequencer, Clip, Dopesheet, Graph, NLA, Properties, Outliner, Console, Spreadsheet
+- **Modes** — All, Object, Edit Mesh, Sculpt, Pose, Weight Paint, Vertex Paint, Texture Paint, Grease Pencil, Curves
+
+Multi-select. Mix and match. Icons for everything.
+
+---
+
+## Operator browser
+
+A searchable accordion on the left lists every Blender operator, grouped into 13 categories:
+
+Transform • Navigation • Mesh • Object • Edit • Sculpt • Paint • UV • Nodes • Animation • Playback • File • System
+
+- Type in the search to filter by name or idname — categories auto-expand
+- Blue dot marks operators that are actually bound somewhere
+- Click any operator to:
+  - **Assign Shortcut** — press a key combo to bind it
+  - **View Bindings** — jump to the key it's already on
+  - **Remove All Bindings** — unbind everywhere (undoable)
+  - **Open in Preferences** — jump to Blender's built-in editor
+
+---
+
+## Editing shortcuts
+
+### Right-click any key
+
+Opens a menu listing up to 5 bindings on that key. Hover any binding for a sub-menu:
+
+- **Rebind** — press a new combo
+- **Unbind / Enable** — toggle it off or back on
+- **Reset to Default** — restore Blender's original
+- All undoable
+
+### Capture mode
+
+When you rebind, every other key dims and your target pulses with an animated border. The prompt says "Press new key combination… ESC to cancel". Press any combo — letters, digits, F-keys, Tab, Space, arrows, numpad, punctuation, with any mix of Ctrl/Shift/Alt/OS.
+
+### Conflict resolution
+
+If your new combo is already taken, a centered dialog appears with three options:
+
+- **Swap** — move the conflicting binding to the old key
+- **Override** — take the combo, deactivate the conflict
+- **Cancel** — bail out
+
+---
+
+## Search
+
+Two kinds, different keys:
+
+- **By name** — `/` or `Ctrl+F`. Fuzzy token matching on operator names. Matching keys stay bright, others dim to 30%. Result count shown.
+- **By shortcut** — `?` (Shift+/). Press a key combo — the visualizer jumps to that key and shows its bindings.
+
+---
+
+## Diff view
+
+Press `D`. Compares your current keyconfig against Blender defaults:
+
+- **Green** — you modified this binding
+- **Red** — you deactivated this binding
+- **Dim** — untouched
+
+A "DIFF" badge appears in the toolbar while active.
+
+---
+
+## Undo, redo, presets, export, import
+
+- **Undo** up to 50 levels. `Ctrl+Z` / `Ctrl+Shift+Z`. Every rebind, unbind, reset, toggle, preset-load and import pushes a snapshot.
+- **Presets** — save your whole keyconfig as a JSON file. Load, delete, copy to clipboard, paste from clipboard. Location configurable in preferences.
+- **Export** — write a Blender-importable `.py` keyconfig script. Export only what you changed (default) or the whole thing.
+- **Import** — load a previously exported `.py` back. Parsing is safe (`ast.literal_eval`), no code execution.
+
+---
+
+## Keyboard navigation
+
+Full keyboard-only workflow for accessibility:
+
+- `Tab` / `Shift+Tab` — cycle focus: Keys → Editors → Modes → Operators → Info
+- Arrow keys — move around the keyboard layout, or scroll lists
+- `Enter` — select / toggle
+- Focus ring shows where you are
+
+---
+
+## Shortcuts reference
+
+| Key | What it does |
+|-----|--------------|
+| `ESC` | Close visualizer / cancel |
+| `/` or `Ctrl+F` | Search operators |
+| `?` | Reverse-lookup (find key by shortcut) |
+| `D` | Toggle diff view |
+| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / Redo |
+| `Tab` / `Shift+Tab` | Cycle focus |
+| Arrow keys | Navigate keyboard / scroll |
+| `Enter` | Select key / toggle filter |
+
+### Mouse
+
+| What you do | What happens |
+|-------------|--------------|
+| Left-click a key | Select it, see its bindings |
+| Left-click a modifier | Toggle that modifier |
+| Right-click a key | Open context menu |
+| Left-click Export / Import / Presets | Open that tool |
+| Drag resize handle | Scale the keyboard |
+| Mouse wheel | Scroll the panel under the cursor |
+| Middle-drag | Drag-scroll a panel |
+
+---
+
+## Install
+
+**From the Blender Extensions platform** *(easiest, once listed)*
+Edit → Preferences → Get Extensions → search "Keymap Visualizer" → Install.
+
+**From the zip**
+1. Download `keymap_visualizer-1.0.0.zip` from the [Releases page](https://github.com/devanshutak25/blenderKey/releases)
+2. Edit → Preferences → Get Extensions → dropdown → **Install from Disk…**
+3. Pick the zip
+4. Restart Blender (required — the addon registers a topbar button at startup)
+
+**From source** *(for development)*
+Clone the repo, then copy the `keymap_visualizer/` folder into:
 
 ```
 # Windows
-%APPDATA%\Blender Foundation\Blender\<version>\scripts\addons\
+%APPDATA%\Blender Foundation\Blender\<version>\extensions\user_default\
 
 # macOS
-~/Library/Application Support/Blender/<version>/scripts/addons/
+~/Library/Application Support/Blender/<version>/extensions/user_default/
 
 # Linux
-~/.config/blender/<version>/scripts/addons/
+~/.config/blender/<version>/extensions/user_default/
 ```
 
 ---
 
-## Usage
+## How to use it
 
-Open the visualizer from **Edit > Keymap Visualizer** in the top menu bar. A new window opens with the keyboard overlay.
+Open from **Edit → Keymap Viz** in the top menu bar. A new window opens with the keyboard.
 
-- **Hover** a key to preview its bindings
-- **Left-click** to lock the info panel to that key
-- **Right-click** to rebind, unbind, or reset a binding
-- **Toggle modifiers** (Ctrl/Shift/Alt/OS) to filter by modifier combo
-- Press `/` or `Ctrl+F` to search operators
-- Press `?` to find a key by pressing its shortcut
-- Press `D` to see what you've changed from defaults
-- Use **Undo** (`Ctrl+Z`) and **Redo** (`Ctrl+Shift+Z`) to revert changes
-
----
-
-## Configuration
-
-Go to **Edit > Preferences > Add-ons > Keymap Visualizer** to configure:
-
-- **Keyboard Layout** — logical layout (Auto/QWERTY/AZERTY/QWERTZ/Dvorak/Colemak/Nordic), physical layout (ANSI/ISO), form factor (100%–60%)
-- **Export / Import** — output path, export scope (modified-only or all), import path
-- **Presets** — presets folder path
-- **Fonts** — custom TTF paths for key labels and command labels
-- **Theme** — 8 base color tokens with color pickers
-- **Category Colors** — enable toggle + 13 individually configurable category colors
-- **Advanced Color Overrides** — 29 fine-grained UI element color overrides (collapsed by default)
+- **Hover** — preview bindings
+- **Left-click** — lock the info panel to that key
+- **Right-click** — rebind, unbind, or reset
+- **Ctrl / Shift / Alt / OS buttons** — filter by modifier combo
+- `/` — search by operator name
+- `?` — find a key by pressing its shortcut
+- `D` — see what you've changed from defaults
+- `Ctrl+Z` / `Ctrl+Shift+Z` — undo / redo
 
 ---
 
-## Project Structure
+## Preferences
+
+**Edit → Preferences → Add-ons → Keymap Visualizer:**
+
+- **Keyboard Layout** — pick your layout, form factor (ANSI/ISO), and size (100%–60%)
+- **Export / Import** — output path, scope (modified-only or all), import path
+- **Presets** — folder to store preset JSON files
+- **Fonts** — custom TTF paths for key labels and command labels (optional)
+- **Theme** — 8 base color tokens. All other colors derive from these.
+- **Category Colors** — turn on/off, customize all 13 category colors
+- **Advanced Color Overrides** — 29 fine-grained per-element color pickers (collapsed by default — open only if the base tokens aren't enough)
+
+---
+
+## Category colors
+
+<img width="1127" height="1320" alt="blender_nMHIr6LGG6" src="https://github.com/user-attachments/assets/ff16bbc2-8f1b-4916-9063-516c04df8660" />
+
+Keys are tinted by what they do. 13 categories — Transform, Navigation, Mesh, Object, Edit, Sculpt, Paint, UV, Nodes, Animation, Playback, File, System. Each color is individually configurable. Legend shown above the keyboard. Turn the whole system off if you prefer plain keys.
+
+---
+
+## Project layout
 
 ```
 keymap_visualizer/
-  __init__.py       # Addon registration and bl_info
+  __init__.py       # Addon registration
+  blender_manifest.toml  # Extension metadata
   constants.py      # Enums, color tokens, layout constants
   drawing.py        # GPU rendering (keys, panels, overlays)
-  export.py         # Python keymap script export
+  export.py         # Python keymap script export/import
   handlers.py       # Event handling and input dispatch
   hit_testing.py    # Mouse-to-key hit detection
   icons.py          # Icon loading and texture atlas
@@ -305,7 +282,15 @@ keymap_visualizer/
 
 ## Contributing
 
-1. Fork the repo and create a feature branch
-2. Keep changes focused — one feature or fix per PR
-3. Test in Blender 5.0+ before submitting
-4. Open a pull request with a clear description of what changed and why
+1. Fork, branch, change, PR
+2. One feature or fix per PR
+3. Test in Blender 5.1+
+4. Clear description of what changed and why
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+Bundles **Roboto Condensed** font (Apache-2.0, © 2011 Google Inc.) — see [keymap_visualizer/fonts/LICENSE.txt](keymap_visualizer/fonts/LICENSE.txt).

@@ -276,11 +276,11 @@ def _deferred_start_modal():
 class WM_OT_keymap_viz_launch(bpy.types.Operator):
     bl_idname = "wm.keymap_viz_launch"
     bl_label = "Open Keymap Visualizer"
-    bl_description = "Open a new window with the keymap visualizer overlay"
+    bl_description = "Open the keymap visualizer in a new window"
 
     def execute(self, context):
         if state._visualizer_running:
-            self.report({'WARNING'}, "Keymap Visualizer is already running")
+            self.report({'WARNING'}, "Keymap Visualizer is already open in another window")
             return {'CANCELLED'}
 
         state._set_running(True)
@@ -305,7 +305,7 @@ class WM_OT_keymap_viz_launch(bpy.types.Operator):
 
         if not win_created:
             state._set_running(False)
-            self.report({'ERROR'}, "Failed to create new window")
+            self.report({'ERROR'}, "Couldn't open a new window — check Blender's window settings")
             return {'CANCELLED'}
 
         new_window = None
@@ -316,7 +316,7 @@ class WM_OT_keymap_viz_launch(bpy.types.Operator):
 
         if new_window is None:
             state._set_running(False)
-            self.report({'ERROR'}, "Failed to find new window")
+            self.report({'ERROR'}, "New window opened but couldn't be located — try again")
             return {'CANCELLED'}
 
         num_areas = len(new_window.screen.areas)

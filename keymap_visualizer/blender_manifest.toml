@@ -9,9 +9,9 @@ type = "add-on"
 
 website = "https://github.com/devanshutak25/blenderKey"
 
-tags = ["Interface", "User Interface"]
+tags = ["User Interface", "System"]
 
-blender_version_min = "4.2.0"
+blender_version_min = "5.1.0"
 
 license = [
   "SPDX:MIT",

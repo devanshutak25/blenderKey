@@ -32,33 +32,39 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
     # --- Keyboard Layout ---
     keyboard_logical_layout: EnumProperty(
         name="Keyboard Layout",
+        description="Which logical layout to show on the visualizer. Auto-Detect reads your OS setting on launch",
         items=[
-            ('AUTO', "Auto-Detect", "Detect from OS"),
-            ('QWERTY', "QWERTY (US)", ""),
-            ('AZERTY', "AZERTY (French)", ""),
-            ('QWERTZ', "QWERTZ (German)", ""),
-            ('DVORAK', "Dvorak", ""),
-            ('COLEMAK', "Colemak", ""),
-            ('NORDIC', "Nordic (DK/SE/NO)", ""),
+            ('AUTO', "Auto-Detect", "Detect your keyboard layout from the OS"),
+            ('QWERTY', "QWERTY (US)", "Standard US layout"),
+            ('AZERTY', "AZERTY (French)", "French layout"),
+            ('QWERTZ', "QWERTZ (German)", "German / Swiss layout"),
+            ('DVORAK', "Dvorak", "Dvorak simplified layout"),
+            ('COLEMAK', "Colemak", "Colemak layout"),
+            ('NORDIC', "Nordic (DK/SE/NO)", "Danish, Swedish, Norwegian, Finnish"),
         ],
         default='AUTO',
         update=_invalidate_layout,
     )
     keyboard_form_factor: EnumProperty(
         name="Form Factor",
-        items=[('ANSI', "ANSI", ""), ('ISO', "ISO", "")],
+        description="Physical keyboard shape. ISO gives you the tall Enter key; ANSI is the standard US shape",
+        items=[
+            ('ANSI', "ANSI", "Standard US keyboard shape (wide Enter)"),
+            ('ISO', "ISO", "European keyboard shape (tall Enter)"),
+        ],
         default='ANSI',
         update=_invalidate_layout,
     )
     keyboard_physical_size: EnumProperty(
         name="Keyboard Size",
+        description="How much of the keyboard to show. Smaller sizes drop the numpad, function row, and navigation cluster",
         items=[
-            ('100', "Full Size (100%)", ""),
-            ('96', "Compact Full (96%)", ""),
-            ('80', "TKL (80%)", ""),
-            ('75', "75%", ""),
-            ('65', "65%", ""),
-            ('60', "60%", ""),
+            ('100', "Full Size (100%)", "Everything — alphanumeric, numpad, function row, nav cluster"),
+            ('96', "Compact Full (96%)", "Full size with tighter spacing"),
+            ('80', "TKL (80%)", "Tenkeyless — no numpad"),
+            ('75', "75%", "Compact — function row kept, navigation cluster condensed"),
+            ('65', "65%", "No function row, minimal nav cluster"),
+            ('60', "60%", "Alphanumeric only"),
         ],
         default='100',
         update=_invalidate_layout,
@@ -67,15 +73,16 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
     # --- Export ---
     export_path: StringProperty(
         name="Export Path",
-        description="File path for keymap export",
+        description="Where to save exported keymap files (.py format, importable back into Blender)",
         subtype='FILE_PATH',
         default=_os.path.join(_addon_dir, "exports", "custom_keymap.py"),
     )
     export_scope: EnumProperty(
         name="Export Scope",
+        description="How much of your keymap to include in exports",
         items=[
-            ('MODIFIED', "Modified Only", "Export only modified keybindings"),
-            ('ALL', "All", "Export all keybindings"),
+            ('MODIFIED', "Modified Only", "Just the bindings you've changed from Blender defaults"),
+            ('ALL', "All", "Every binding, even unchanged ones (large file)"),
         ],
         default='MODIFIED',
     )
@@ -83,7 +90,7 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
     # --- Import ---
     import_path: StringProperty(
         name="Import Path",
-        description="File path for keymap import (Python script exported by this addon)",
+        description="File to import when you click the Import button (a .py keymap previously exported by this addon)",
         subtype='FILE_PATH',
         default="",
     )
@@ -91,13 +98,13 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
     # --- Fonts ---
     main_font_path: StringProperty(
         name="Key Label Font",
-        description="TTF font for key labels (leave empty for Blender default)",
+        description="Font for the key names on each key (G, Tab, F5…). Leave empty to use Blender's default font",
         subtype='FILE_PATH',
         default="",
     )
     condensed_font_path: StringProperty(
         name="Command Label Font",
-        description="TTF font for command labels (leave empty for bundled Roboto Condensed)",
+        description="Font for the operator labels under each key (Move, Extrude…). Leave empty to use the bundled Roboto Condensed",
         subtype='FILE_PATH',
         default="",
     )
@@ -149,7 +156,7 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
     # --- Category colors ---
     enable_category_colors: BoolProperty(
         name="Category Colors",
-        description="Color keys by operator category (Transform, Navigation, etc.)",
+        description="Tint each key by the category of its primary binding (Transform, Navigation, Mesh, etc.). Turn off for plain keys",
         default=True,
         update=_invalidate,
     )
@@ -224,7 +231,7 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
     # ======================================================================
     show_advanced_colors: BoolProperty(
         name="Advanced Color Overrides",
-        description="Show individual color overrides (derived from base tokens by default)",
+        description="Show per-element color pickers. Most people won't need these — the 8 base tokens above drive everything by default",
         default=False,
     )
 
@@ -409,7 +416,7 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
     # --- Presets ---
     presets_directory: StringProperty(
         name="Presets Folder",
-        description="Directory to store keymap presets",
+        description="Where to save your preset JSON files. Change this if you want to sync presets via cloud storage",
         subtype='DIR_PATH',
         default=_os.path.join(_addon_dir, "presets"),
     )
@@ -485,7 +492,7 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
         box = layout.box()
         box.prop(self, "show_advanced_colors", icon='TRIA_DOWN' if self.show_advanced_colors else 'TRIA_RIGHT')
         if self.show_advanced_colors:
-            box.label(text="Enable overrides to customize individual derived colors:")
+            box.label(text="Tick a box to override a specific color. Most people should leave these alone.")
             _OVERRIDES = [
                 ("key_unbound", "Key Unbound"),
                 ("key_selected", "Key Selected"),
