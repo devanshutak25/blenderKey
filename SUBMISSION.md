@@ -117,7 +117,7 @@ Blender 5.1 or newer.
 |-------|-------|
 | **Category** | User Interface |
 | **Secondary tag** | System |
-| **License** | MIT |
+| **License** | GPL-3.0-or-later *(required by platform — Blender is GPL)* |
 | **Bundled license** | Apache-2.0 (Roboto Condensed font) |
 | **Blender version min** | 5.1.0 |
 | **Blender version max** | *(leave empty)* |
@@ -147,13 +147,16 @@ When the platform asks why the extension needs each permission:
 
 ## Media checklist (prepare before submitting)
 
-- [ ] **Cover image** — 1920×1080, PNG or JPG. Visualizer in action on a real keyboard layout.
-- [ ] **Screenshots** — 2–4 at 1920×1080 showing:
-  - Overview of the full keyboard with color coding
-  - Info panel showing bindings for a hovered key
-  - Right-click context menu / rebind flow
-  - Diff view or preferences panel
-- [ ] **Video** — upload `Keymap.mp4` to YouTube (unlisted is fine), grab the URL.
+| Asset | Spec | Status |
+|-------|------|--------|
+| **Cover image** | 1920×1080, PNG/JPG, ≤2 MB — hero shot, full keyboard with color coding visible | [ ] |
+| **Icon** | 256×256, PNG with transparent bg — recognizable at 64×64 | [ ] |
+| **Screenshot 1** — Overview | 1920×1080 — full keyboard, category colors on, info panel visible | [ ] |
+| **Screenshot 2** — Rebind flow | 1920×1080 — right-click context menu + flyout on a key | [ ] |
+| **Screenshot 3** — Search | 1920×1080 — `/` search active, non-matches dimmed, or `?` reverse-lookup | [ ] |
+| **Screenshot 4** — Diff view | 1920×1080 — `D` pressed, green/red keys visible | [ ] |
+| **Screenshot 5 (optional)** — Preferences | 1920×1080 — theming, category colors, advanced overrides | [ ] |
+| **Video** | YouTube (unlisted ok), 1080p+, 30s–2min. `Keymap.mp4` works as-is | [ ] |
 
 ---
 
@@ -167,9 +170,16 @@ When the platform asks why the extension needs each permission:
 - [x] `bl_info` absent (using manifest only — correct for 4.2+ extensions)
 - [x] No network calls
 - [x] Version warning on older Blender
-- [ ] GitHub v1.0.0 tag pushed
-- [ ] Cover image + screenshots prepared
-- [ ] Video uploaded to YouTube
+- [x] Min Blender version bumped to 5.1.0
+- [x] README humanized
+- [x] Preference labels/descriptions humanized
+- [x] SUBMISSION.md drafted with all field values
+- [x] v1.0.0 committed and tagged locally
+- [ ] v1.0.0 tag pushed to GitHub (`git push origin master --tags`)
+- [ ] GitHub Release created with zip attached
+- [ ] Cover image + icon prepared
+- [ ] Screenshots (2–4) prepared
+- [ ] Video uploaded to YouTube, URL saved
 
 ---
 

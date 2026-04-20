@@ -6,9 +6,9 @@ Hover a key to see what it does. Click once to lock it. Right-click to change it
 
 > *Completely vibecoded using Claude Code.*
 
-![Blender](https://img.shields.io/badge/Blender-5.1%2B-orange) ![License](https://img.shields.io/badge/license-MIT-blue)
+![Blender](https://img.shields.io/badge/Blender-5.1%2B-orange) ![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
 
-<img width="3268" height="1215" alt="blender_OLXUgEh7rF" src="https://github.com/user-attachments/assets/7b4b73d3-99d6-4394-9749-4721b6921cfd" />
+![Keymap Visualizer](docs/cover.png)
 
 ---
 
@@ -291,6 +291,6 @@ keymap_visualizer/
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+GPL-3.0-or-later — see [LICENSE](LICENSE). Required by the Blender Extensions platform since Blender itself is GPL.
 
 Bundles **Roboto Condensed** font (Apache-2.0, © 2011 Google Inc.) — see [keymap_visualizer/fonts/LICENSE.txt](keymap_visualizer/fonts/LICENSE.txt).

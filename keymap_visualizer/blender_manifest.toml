@@ -14,8 +14,7 @@ tags = ["User Interface", "System"]
 blender_version_min = "5.1.0"
 
 license = [
-  "SPDX:MIT",
-  "SPDX:Apache-2.0",
+  "SPDX:GPL-3.0-or-later",
 ]
 
 copyright = [
