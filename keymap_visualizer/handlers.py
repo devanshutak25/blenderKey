@@ -2,8 +2,11 @@
 Keymap Visualizer – State machine event handlers
 """
 
+import logging
 import time
 from . import state
+
+_log = logging.getLogger("keymap_visualizer.handlers")
 from .state import DirtyFlag, BINDING_FLAGS, KEYMAP_MUTATION_FLAGS
 from .profiler import prof
 from .hit_testing import (
@@ -202,11 +205,11 @@ def _handle_idle(context, event):
         if prof.enabled:
             prof.reset()
             prof.auto_report_interval = 120
-            print("[Keymap Visualizer] Profiler ON — report every 120 frames. Ctrl+Shift+P to stop.")
+            _log.info("Profiler ON — report every 120 frames. Ctrl+Shift+P to stop.")
         else:
             prof.report()
             prof.auto_report_interval = 0
-            print("[Keymap Visualizer] Profiler OFF.")
+            _log.info("Profiler OFF.")
         return {'RUNNING_MODAL'}
 
     # v0.9 Feature 4: Undo/redo (before other key handling)
@@ -471,14 +474,14 @@ def _handle_idle(context, event):
         # Check export button
         if _hit_test_export(mx, my):
             success, msg = _do_export()
-            print(f"[Keymap Visualizer] {msg}")
+            _log.info("%s", msg)
             _tag_redraw()
             return {'RUNNING_MODAL'}
 
         # Check import button
         if _hit_test_import(mx, my):
             success, msg = _do_import()
-            print(f"[Keymap Visualizer] {msg}")
+            _log.info("%s", msg)
             if success:
                 state._invalidate_cache()
             _tag_redraw()
@@ -1035,18 +1038,18 @@ def _handle_preset_dropdown(context, event):
                 from .presets import _delete_preset
                 if state._active_preset_name:
                     success, msg = _delete_preset(state._active_preset_name)
-                    print(f"[Keymap Visualizer] {msg}")
+                    _log.info("%s", msg)
                     if success:
                         state._active_preset_name = ""
             elif action == 'COPY_CLIPBOARD':
                 from .presets import _copy_preset_to_clipboard
                 if state._active_preset_name:
                     success, msg = _copy_preset_to_clipboard(state._active_preset_name)
-                    print(f"[Keymap Visualizer] {msg}")
+                    _log.info("%s", msg)
             elif action == 'PASTE_CLIPBOARD':
                 from .presets import _paste_preset_from_clipboard
                 success, msg = _paste_preset_from_clipboard()
-                print(f"[Keymap Visualizer] {msg}")
+                _log.info("%s", msg)
                 if success:
                     state._invalidate_cache()
             elif action.startswith('LOAD:'):
@@ -1055,7 +1058,7 @@ def _handle_preset_dropdown(context, event):
                 # Push full undo snapshot before loading
                 _push_undo_all_keymaps()
                 success, msg = _load_preset(preset_name)
-                print(f"[Keymap Visualizer] {msg}")
+                _log.info("%s", msg)
 
         # Close dropdown
         _dismiss_preset_dropdown()
@@ -1084,7 +1087,7 @@ def _handle_preset_name_input(context, event):
         if name:
             from .presets import _save_preset
             success, msg = _save_preset(name)
-            print(f"[Keymap Visualizer] {msg}")
+            _log.info("%s", msg)
             if success:
                 state._active_preset_name = name
         state._preset_name_input_active = False

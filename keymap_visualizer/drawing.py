@@ -2653,13 +2653,13 @@ def _draw_callback():
         if not state._key_rects:
             _draw_callback_count += 1
             if _draw_callback_count <= 5:
-                print(f"[Keymap Visualizer] draw: no key_rects "
-                      f"(region={rw}x{rh}, call #{_draw_callback_count})")
+                _log.debug("draw: no key_rects (region=%dx%d, call #%d)",
+                           rw, rh, _draw_callback_count)
             return
 
         if _draw_callback_count > 0:
-            print(f"[Keymap Visualizer] draw: first successful draw "
-                  f"(region={rw}x{rh}, {len(state._key_rects)} keys)")
+            _log.debug("draw: first successful draw (region=%dx%d, %d keys)",
+                       rw, rh, len(state._key_rects))
             _draw_callback_count = -1
 
         # Load icon textures (lazy, runs once)

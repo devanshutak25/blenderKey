@@ -4,11 +4,24 @@ id = "keymap_visualizer"
 version = "1.0.0"
 name = "Keymap Visualizer"
 tagline = "Visual keyboard-based keymap editor"
-maintainer = "Devanshu Tak <devanshutak25>"
+maintainer = "Devanshu Tak <charutak.davc@gmail.com>"
 type = "add-on"
-license = ["SPDX:MIT"]
+
+website = "https://github.com/devanshutak25/blenderKey"
+
+tags = ["Interface", "User Interface"]
 
 blender_version_min = "4.2.0"
 
+license = [
+  "SPDX:MIT",
+  "SPDX:Apache-2.0",
+]
+
+copyright = [
+  "2026 Devanshu Tak",
+  "2011 Google Inc. (Roboto Condensed font)",
+]
+
 [permissions]
-files = "Export keymap configurations and save presets to disk"
+files = "Export keymap configurations and save/load presets to disk"
