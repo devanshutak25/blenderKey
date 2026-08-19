@@ -90,7 +90,13 @@ class KeymapVizPreferences(bpy.types.AddonPreferences):
         name="Export Scope",
         description="How much of your keymap to include in exports",
         items=[
-            ('MODIFIED', "Modified Only", "Just the bindings you've changed from Blender defaults"),
+            ('MODIFIED', "Changed Bindings Only",
+             "Just the bindings you've changed. Smallest file and easy to read as a diff, "
+             "but it holds partial keymaps - activating it as a keyconfig would drop the "
+             "bindings it doesn't list"),
+            ('MODIFIED_KEYMAPS', "Whole Changed Keymaps",
+             "Every binding of every keymap you've touched. What Blender's own keymap "
+             "export writes, and safe to activate as a keyconfig"),
             ('ALL', "All", "Every binding, even unchanged ones (large file)"),
         ],
         default='MODIFIED',

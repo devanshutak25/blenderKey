@@ -97,13 +97,14 @@ def _toggle_filter_item(filter_set, value):
 
 
 def _get_unit_px():
-    """Compute current unit_px from cached region size and user scale."""
-    rw, rh = state._cached_region_size
-    if rw == 0 or rh == 0:
-        return 40  # fallback
-    unit_from_w = rw / 24
-    unit_from_h = rh / 12
-    return min(unit_from_w, unit_from_h) * state._user_scale
+    """Current unit_px, as fitted by layout._compute_keyboard_layout.
+
+    Read, never recomputed: menu and flyout geometry has to agree with the keys
+    that were actually drawn.
+    """
+    if state._unit_px <= 0:
+        return 40  # fallback: no layout computed yet
+    return state._unit_px
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +181,10 @@ def _handle_resize_drag(context, event):
         # Scale change proportional to horizontal delta
         scale_delta = dx / 200.0
         new_scale = state._resize_drag_start_scale + scale_delta
-        new_scale = max(0.5, min(3.0, new_scale))
+        # 1.0 is the fitted size (layout._fit_unit_px), so the upper bound is
+        # exactly-fits: the keyboard can never be dragged outside the window.
+        # Bigger keys come from a bigger window.
+        new_scale = max(state._USER_SCALE_MIN, min(state._USER_SCALE_MAX, new_scale))
         if new_scale != state._user_scale:
             state._user_scale = new_scale
             state._cached_region_size = (0, 0)  # Force layout recompute
@@ -820,16 +824,10 @@ def _handle_capture(context, event):
         # New binding mode (from operator list)
         if state._capture_new_binding:
             op_id = state._capture_target_op_id
-            # Check for conflicts (no exclude_kmi since this is new)
-            conflicts = _find_conflicts(new_type, new_ctrl, new_shift, new_alt, new_oskey)
-            if not conflicts:
-                _create_new_binding(op_id, new_type, new_ctrl, new_shift, new_alt, new_oskey)
-                state._modal_state = 'IDLE'
-            else:
-                # For new bindings, still allow conflict resolution
-                # Create the binding first, then let user decide
-                new_kmi = _create_new_binding(op_id, new_type, new_ctrl, new_shift, new_alt, new_oskey)
-                state._modal_state = 'IDLE'
+            # New bindings are created even when they collide; Blender allows
+            # duplicate shortcuts and the conflict dialog is rebind-only.
+            _create_new_binding(op_id, new_type, new_ctrl, new_shift, new_alt, new_oskey)
+            state._modal_state = 'IDLE'
             state._capture_new_binding = False
             state._capture_target_op_id = None
             state._capture_target_km_name = None
@@ -893,6 +891,7 @@ def _handle_conflict(context, event):
         mx, my = event.mouse_region_x, event.mouse_region_y
         btn_hit = _hit_test_conflict_buttons(mx, my)
 
+        action = None
         if btn_hit >= 0:
             action = state._conflict_button_rects[btn_hit][1]
             src_kmi = state._conflict_data.get('source_kmi')
@@ -1083,8 +1082,8 @@ def _handle_preset_dropdown(context, event):
             elif action.startswith('LOAD:'):
                 preset_name = action[5:]
                 from .presets import _load_preset
-                # Push full undo snapshot before loading
-                _push_undo_all_keymaps()
+                # Undo is pushed inside _apply_keyconfig_data, which snapshots
+                # exactly the KMIs the preset touches.
                 success, msg = _load_preset(preset_name)
                 _log.info("%s", msg)
 
@@ -1135,26 +1134,6 @@ def _handle_preset_name_input(context, event):
         return {'RUNNING_MODAL'}
 
     return {'RUNNING_MODAL'}
-
-
-def _push_undo_all_keymaps():
-    """Push a partial undo snapshot (first few KMIs from each keymap) before preset load."""
-    import bpy
-    wm = bpy.context.window_manager
-    kc = wm.keyconfigs.user
-    if kc is None:
-        return
-    # Collect first KMI from each keymap as a representative sample
-    kmis = []
-    for km in kc.keymaps:
-        for kmi in km.keymap_items:
-            kmis.append(kmi)
-            if len(kmis) >= 50:
-                break
-        if len(kmis) >= 50:
-            break
-    if kmis:
-        _push_undo(kmis)
 
 
 # ---------------------------------------------------------------------------

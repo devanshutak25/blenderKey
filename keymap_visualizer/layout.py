@@ -9,6 +9,87 @@ from .constants import KeyRect, SPACE_TYPE_FILTERS, MODE_FILTERS
 from .keyboards import get_resolved_rows, MOUSE_ROWS, MOUSE_ALIGNMENT, MOUSE_WIDTH
 
 
+# Vertical budget, in units, of everything stacked above y=0. The bottom band
+# (filter lists + info panel) sits below the keys; the toolbar sits above them.
+BOTTOM_BAND_UNITS = 3.2        # panel_h, see the bottom-panel section below
+KEYS_ABOVE_BAND_UNITS = 0.5    # clearance between band and the bottom key row
+TOOLBAR_STACK_UNITS = 1.1      # toolbar offset 0.3 + height 0.55 + plate pad 0.25
+
+# Horizontal padding either side is max(10, 0.25 * unit) — the 10px floor takes
+# over below this unit size.
+_PAD_UNITS = 0.25
+_PAD_FLOOR_PX = 10
+_PAD_FLOOR_UNIT = _PAD_FLOOR_PX / _PAD_UNITS  # 40.0
+
+# The bottom band is a scrolling viewport, so it does not have to fit its 15
+# editors and 10 modes — but it does need room for its header and a few rows.
+# These floors mirror layout's own item_h/header_h below.
+_LIST_ITEM_FLOOR_PX = 20
+_LIST_HEADER_FLOOR_PX = 16
+_MIN_VISIBLE_LIST_ITEMS = 3
+MIN_BAND_PX = _LIST_HEADER_FLOOR_PX + _MIN_VISIBLE_LIST_ITEMS * _LIST_ITEM_FLOOR_PX  # 76
+
+# Below this unit size the band viewport drops under its floor and key text
+# stops drawing (drawing.py gates label rendering at 20px), so the layout is no
+# longer usable and we say so instead of drawing a broken one.
+MIN_USABLE_UNIT_PX = MIN_BAND_PX / BOTTOM_BAND_UNITS  # 23.75
+
+
+def _band_height_px(unit_px):
+    """Height of the bottom band: proportional, but never below its floor."""
+    return max(BOTTOM_BAND_UNITS * unit_px, MIN_BAND_PX)
+
+
+def _widest_row(rows):
+    """Width in units of the widest row, counting bare floats as spacers."""
+    widest = 0.0
+    for row in rows:
+        row_w = 0.0
+        for item in row:
+            if isinstance(item, (int, float)):
+                row_w += item
+            else:
+                row_w += item[2]
+        widest = max(widest, row_w)
+    return widest
+
+
+def _fit_unit_px(region_width, region_height, total_width_units, n_main_rows):
+    """Largest unit size at which the whole layout fits inside the region.
+
+    Both axes have a pixel floor that takes over below a certain unit size, so
+    each is solved in two branches rather than iterated: assume the
+    proportional case, and fall back to the floor case when the first result
+    lands in the floor's territory.
+    """
+    if total_width_units <= 0:
+        return 0.0
+
+    # Horizontal: total_width_units * unit + 2 * pad, pad = max(10, 0.25 * unit)
+    unit_w = region_width / (total_width_units + 2 * _PAD_UNITS)
+    if unit_w < _PAD_FLOOR_UNIT:
+        unit_w = (region_width - 2 * _PAD_FLOOR_PX) / total_width_units
+
+    # Vertical: band + clearance + key rows + toolbar stack, and the band has
+    # its own pixel floor.
+    above_band_units = KEYS_ABOVE_BAND_UNITS + n_main_rows + TOOLBAR_STACK_UNITS
+    unit_h = region_height / (BOTTOM_BAND_UNITS + above_band_units)
+    if unit_h < MIN_USABLE_UNIT_PX and above_band_units > 0:
+        # Band has hit its floor and no longer shrinks with the unit.
+        unit_h = (region_height - MIN_BAND_PX) / above_band_units
+
+    return max(0.0, min(unit_w, unit_h))
+
+
+def _min_region_size(total_width_units, n_main_rows):
+    """Smallest region, in pixels, that yields a usable layout."""
+    u = MIN_USABLE_UNIT_PX
+    pad = max(_PAD_FLOOR_PX, u * _PAD_UNITS)
+    w = total_width_units * u + 2 * pad
+    h = _band_height_px(u) + (KEYS_ABOVE_BAND_UNITS + n_main_rows + TOOLBAR_STACK_UNITS) * u
+    return int(w + 0.5), int(h + 0.5)
+
+
 def _compute_keyboard_layout(region_width, region_height):
     """Compute KeyRect list for all keys, centered in the region."""
     state._key_rects = []
@@ -34,34 +115,14 @@ def _compute_keyboard_layout(region_width, region_height):
     main_rows, nav_rows, numpad_rows, nav_alignment, numpad_alignment = \
         get_resolved_rows(form_factor, logical_layout, physical_size)
 
-    # Unit size: fit keyboard to fill the window in both dimensions.
-    # Horizontal: wider divisor for more room per key
-    # Vertical: 12 units (no separate toggle bar row)
-    # Feature 2: Apply user scale
-    unit_from_w = region_width / 24
-    unit_from_h = region_height / 12
-    unit_px = min(unit_from_w, unit_from_h) * state._user_scale
-    if unit_px < 8:
-        return  # Don't update _cached_region_size so draw callback retries
-
-    state._cached_region_size = (region_width, region_height)
-    key_gap = unit_px * 0.08
-
-    # Calculate main block width (widest row)
-    main_width = 0
-    for row in main_rows:
-        row_w = 0
-        for item in row:
-            if isinstance(item, (int, float)):
-                row_w += item
-            else:
-                row_w += item[2]
-        main_width = max(main_width, row_w)
+    # --- Content extents, in units. These depend only on the resolved rows,
+    # never on unit_px, so they are known before the unit can be fitted. ---
+    main_width = _widest_row(main_rows)
 
     nav_gap = 1.0  # gap between main block and nav cluster in units
-    nav_width = 3.0  # nav cluster is 3 keys wide max
+    nav_width = _widest_row(nav_rows)
     numpad_gap = 1.0
-    numpad_width = 4.0
+    numpad_width = _widest_row(numpad_rows)
 
     # Mouse block gap
     mouse_gap = 1.0
@@ -74,12 +135,29 @@ def _compute_keyboard_layout(region_width, region_height):
         total_width_units += numpad_gap + numpad_width
     total_width_units += mouse_gap + MOUSE_WIDTH
 
+    # Unit size: the largest unit at which the whole keyboard, its toolbar and
+    # the bottom band fit inside the region. Feature 2: apply user scale.
+    unit_px = _fit_unit_px(region_width, region_height,
+                           total_width_units, len(main_rows)) * state._user_scale
+
+    state._cached_region_size = (region_width, region_height)
+    if unit_px < MIN_USABLE_UNIT_PX:
+        # Too small to draw anything usable. Record why, so the draw callback
+        # can say so instead of leaving the window mysteriously blank.
+        state._layout_too_small = True
+        state._layout_min_region = _min_region_size(total_width_units, len(main_rows))
+        state._unit_px = 0.0
+        return
+    state._layout_too_small = False
+    state._unit_px = unit_px
+    key_gap = unit_px * 0.08
+
     # Center the whole keyboard
     total_width_px = total_width_units * unit_px
     start_x = (region_width - total_width_px) / 2
     # Position keyboard above bottom panel (lists + info)
-    bottom_panel_height = unit_px * 3.2
-    start_y = bottom_panel_height + unit_px * 0.5
+    bottom_panel_height = _band_height_px(unit_px)
+    start_y = bottom_panel_height + KEYS_ABOVE_BAND_UNITS * unit_px
 
     # Build main block key rects (rows stack bottom-to-top)
     for row_idx, row in enumerate(main_rows):
@@ -200,7 +278,7 @@ def _compute_keyboard_layout(region_width, region_height):
     # --- Bottom panel: Editor list + Mode list + Operators + Info panel ---
     min_x = min(kr.x for kr in state._key_rects)
     gap = unit_px * 0.12
-    panel_h = unit_px * 3.2
+    panel_h = _band_height_px(unit_px)
     panel_y = all_min_y - pad - panel_h - max(3, int(unit_px * 0.06))
     editor_list_w = unit_px * 2.8
     mode_list_w = unit_px * 2.5
@@ -217,6 +295,12 @@ def _compute_keyboard_layout(region_width, region_height):
     # Operator list panel bounding box
     operator_list_x = mode_list_x + mode_list_w + gap
     state._operator_list_rect = (operator_list_x, panel_y, operator_list_w, panel_h)
+
+    # Info panel fills the rest of the band, to the right of the three lists.
+    # Computed here rather than at draw time so it shares the band's floor and
+    # y position instead of re-deriving them.
+    info_x = operator_list_x + operator_list_w + gap
+    state._info_panel_rect = (info_x, panel_y, (all_max_x + pad) - info_x, panel_h)
 
     # Compute list item rects (leave room for header at top)
     item_h = max(20, unit_px * 0.5)

@@ -436,6 +436,41 @@ def _draw_rect(shader, x, y, w, h, color):
     batch.draw(shader)
 
 
+def _draw_too_small_notice(region_width, region_height):
+    """Explain a region too small to lay out, instead of leaving it blank."""
+    min_w, min_h = state._layout_min_region
+    lines = [
+        "Window too small",
+        "Enlarge to at least %d x %d" % (min_w, min_h),
+    ]
+
+    shader = _get_shader_uniform()
+    gpu.state.blend_set('ALPHA')
+    _draw_rect(shader, 0, 0, region_width, region_height, (0.11, 0.11, 0.12, 1.0))
+
+    font_id = _ensure_font_loaded()
+    sizes = (14, 11)
+    colors = ((0.90, 0.90, 0.92, 1.0), (0.62, 0.62, 0.66, 1.0))
+
+    # Measure first so the block can be centred as a whole.
+    heights = []
+    for text, size in zip(lines, sizes):
+        blf.size(font_id, size)
+        heights.append(blf.dimensions(font_id, text)[1])
+    gap = 6
+    total_h = sum(heights) + gap * (len(lines) - 1)
+
+    y = (region_height + total_h) / 2
+    for text, size, col, th in zip(lines, sizes, colors, heights):
+        blf.size(font_id, size)
+        tw = blf.dimensions(font_id, text)[0]
+        y -= th
+        blf.position(font_id, max(4, (region_width - tw) / 2), y, 0)
+        blf.color(font_id, *col)
+        blf.draw(font_id, text)
+        y -= gap
+
+
 def _draw_rect_border(shader, x, y, w, h, color):
     """Draw a rectangle border (immediate mode – prefer LineBatcher for batching)."""
     verts = [(x, y), (x + w, y), (x + w, y + h), (x, y + h)]
@@ -721,14 +756,8 @@ def _build_gpu_menu(mx, my, region_width, region_height, bindings=None):
     if bindings is None:
         return
 
-    # Compute unit_px to match _draw_callback's scaled spacing
-    rw, rh = state._cached_region_size
-    if rw > 0 and rh > 0:
-        unit_from_w = rw / 24
-        unit_from_h = rh / 12
-        unit_px = min(unit_from_w, unit_from_h) * state._user_scale
-    else:
-        unit_px = 40
+    # Fitted by _compute_keyboard_layout; menu geometry must agree with the keys.
+    unit_px = state._unit_px if state._unit_px > 0 else 40
 
     s = _compute_spacing(unit_px)
     item_h = s.item_h
@@ -812,14 +841,8 @@ def _build_flyout(main_item_index):
     actions.append(("Reset to Default", "RESET"))
     actions.append(("Toggle On/Off", "TOGGLE"))
 
-    # Compute scaled spacing to match _draw_callback
-    rw, rh = state._cached_region_size
-    if rw > 0 and rh > 0:
-        unit_from_w = rw / 24
-        unit_from_h = rh / 12
-        unit_px = min(unit_from_w, unit_from_h) * state._user_scale
-    else:
-        unit_px = 40
+    # Fitted by _compute_keyboard_layout; menu geometry must agree with the keys.
+    unit_px = state._unit_px if state._unit_px > 0 else 40
     s = _compute_spacing(unit_px)
     sp2 = s.sp2
     sp5 = s.sp5
@@ -860,12 +883,8 @@ def _build_preset_dropdown(button_rect, region_width, region_height):
     presets = _list_presets()
     bx, by, bw, bh = button_rect
 
-    # Compute unit_px for scaled sizing
-    rw, rh = state._cached_region_size
-    if rw > 0 and rh > 0:
-        _upx = min(rw / 24, rh / 12) * state._user_scale
-    else:
-        _upx = 40
+    # Fitted by _compute_keyboard_layout; dropdown geometry must agree with the keys.
+    _upx = state._unit_px if state._unit_px > 0 else 40
     _s = _compute_spacing(_upx)
     item_h = _s.item_h_sm
     padding = _s.sp1
@@ -2051,14 +2070,11 @@ def _draw_info_panel(ctx, kb_bounds):
     min_x, max_x, min_y, max_y = kb_bounds
 
     # --- G. Info panel (to the right of filter lists + operators) ---
-    gap = unit_px * 0.12
-    editor_list_w = unit_px * 2.8
-    mode_list_w = unit_px * 2.5
-    operator_list_w = unit_px * 3.0
-    info_x = (min_x - pad) + editor_list_w + gap + mode_list_w + gap + operator_list_w + gap
-    info_w = (max_x + pad) - info_x
-    info_h = unit_px * 3.2
-    info_y = min_y - pad - info_h - sp3
+    # Geometry owned by layout._compute_keyboard_layout, so the panel shares the
+    # bottom band's floor and baseline with the lists beside it.
+    if state._info_panel_rect is None:
+        return
+    info_x, info_y, info_w, info_h = state._info_panel_rect
 
     # Panel background + border -- info panel uses brighter bg (batched)
     rb = ctx.rb
@@ -2068,9 +2084,6 @@ def _draw_info_panel(ctx, kb_bounds):
 
     if state._nav_focus == 'INFO_PANEL':
         lb.add(info_x, info_y, info_w, info_h, colors['border_highlight'])
-
-    # Store rect for hit testing (Issue #3)
-    state._info_panel_rect = (info_x, info_y, info_w, info_h)
 
     # Safety warning takes priority over key bindings (hover or pinned via the toolbar icon)
     show_warning = state._warning_hovered or state._warning_pinned
@@ -2724,9 +2737,17 @@ def _draw_callback():
         if (rw, rh) != state._cached_region_size:
             _compute_keyboard_layout(rw, rh)
 
+        # Region too small for a usable layout: say so rather than render nothing.
+        if state._layout_too_small:
+            _draw_too_small_notice(rw, rh)
+            return
+
         # Retry layout if previous attempt failed
         if not state._key_rects and rw > 0 and rh > 0:
             _compute_keyboard_layout(rw, rh)
+            if state._layout_too_small:
+                _draw_too_small_notice(rw, rh)
+                return
 
         if not state._key_rects:
             _draw_callback_count += 1
@@ -2779,7 +2800,8 @@ def _draw_callback():
         shader_uniform = _get_shader_uniform()
         shader_smooth = _get_shader_smooth()
 
-        unit_px = min(rw / 24, rh / 12) * state._user_scale
+        # Fitted by _compute_keyboard_layout above; never recomputed here.
+        unit_px = state._unit_px
 
         # Centralized spacing
         s = _compute_spacing(unit_px)

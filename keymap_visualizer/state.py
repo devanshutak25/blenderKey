@@ -60,6 +60,13 @@ _draw_handle = None
 _target_area = None
 _key_rects = []                    # list of KeyRect
 _cached_region_size = (0, 0)
+# Fitted key unit size in pixels, computed by layout._compute_keyboard_layout.
+# Single source of truth: drawing and handlers read this, never recompute it.
+_unit_px = 0.0
+# Set when the region is too small for a usable layout; the draw callback
+# reports the minimum instead of rendering nothing.
+_layout_too_small = False
+_layout_min_region = (0, 0)
 _hovered_key_index = -1
 _selected_key_index = -1
 _active_modifiers = {'ctrl': False, 'shift': False, 'alt': False, 'oskey': False}
@@ -127,6 +134,10 @@ _close_hovered = False
 _should_close = False        # signal from handler → modal
 
 # Feature 2: Resizable keyboard frame
+# Keyboard size as a fraction of the fitted size: 1.0 exactly fills the
+# region, lower shrinks it. Capped at 1.0 so the layout cannot overflow.
+_USER_SCALE_MIN = 0.5
+_USER_SCALE_MAX = 1.0
 _user_scale = 1.0
 _resize_handle_rect = None   # (x, y, w, h)
 _resize_hovered = False
@@ -270,6 +281,7 @@ def _reset_all_state():
     """Reset all mutable state to defaults. Callers handle draw handler removal,
     _set_running(), icon cleanup, and area redraws separately."""
     global _draw_handle, _target_area, _target_window, _launch_window
+    global _unit_px, _layout_too_small, _layout_min_region
     global _hovered_key_index, _selected_key_index, _cached_region_size, _mouse_rects_start_index
     global _cached_bindings, _bindings_key, _cached_all_bindings, _all_bindings_key
     global _modal_state, _conflict_hovered_button, _gpu_menu_hovered
@@ -324,6 +336,9 @@ def _reset_all_state():
     _selected_key_index = -1
     _key_rects.clear()
     _cached_region_size = (0, 0)
+    _unit_px = 0.0
+    _layout_too_small = False
+    _layout_min_region = (0, 0)
     _modifier_rects.clear()
     _mouse_rects_start_index = -1
     _active_modifiers.update({'ctrl': False, 'shift': False, 'alt': False, 'oskey': False})

@@ -11,8 +11,24 @@ from . import state
 _log = logging.getLogger("keymap_visualizer.export")
 
 
+# Modifier fields, in the order Blender's own exporter writes them. Each is an
+# int, not a bool: -1 means "any state" (the tri-state shown as a dash in the UI).
+_KMI_MODIFIER_ATTRS = ('shift', 'ctrl', 'alt', 'oskey', 'hyper')
+
+# Everything that distinguishes one binding from another when comparing against
+# the default keyconfig.
+_KMI_COMPARE_ATTRS = (
+    'type', 'value', 'any', 'shift', 'ctrl', 'alt', 'oskey', 'hyper',
+    'key_modifier', 'direction', 'repeat', 'active',
+)
+
+
 def _kmi_to_properties_dict(kmi):
-    """Extract serializable operator properties from a KMI."""
+    """Extract every operator property of a KMI as a flat dict.
+
+    Used for *comparison* (telling two bindings of one operator apart), not for
+    export - see _kmi_properties_as_data for the serialized form.
+    """
     props = {}
     try:
         if kmi.properties is not None:
@@ -34,6 +50,101 @@ def _kmi_to_properties_dict(kmi):
     return props
 
 
+def _kmi_properties_as_data(props):
+    """Serialize operator properties as Blender's [(name, value), ...] list.
+
+    Only explicitly-set properties are written, matching
+    bl_keymap_utils.io._kmi_properties_to_lines. Nested OperatorProperties
+    (pointer properties, as used by macros) recurse into a nested list under
+    their own name.
+    """
+    if props is None:
+        return None
+    try:
+        prop_names = props.bl_rna.properties.keys()
+    except Exception:
+        _log.debug("Could not read KMI properties", exc_info=True)
+        return None
+
+    out = []
+    for prop_name in prop_names:
+        if prop_name == 'rna_type':
+            continue
+        try:
+            if not props.is_property_set(prop_name):
+                continue
+            val = getattr(props, prop_name)
+        except Exception:
+            _log.debug("Could not read property %s", prop_name, exc_info=True)
+            continue
+
+        if isinstance(val, bpy.types.OperatorProperties):
+            nested = _kmi_properties_as_data(val)
+            if nested:
+                out.append((prop_name, nested))
+            continue
+
+        try:
+            if hasattr(val, 'to_list'):
+                val = val.to_list()
+            elif hasattr(val, 'to_dict'):
+                val = val.to_dict()
+        except Exception:
+            _log.debug("Could not serialize property %s", prop_name, exc_info=True)
+            continue
+        out.append((prop_name, val))
+    return out
+
+
+def _kmi_args_as_data(kmi):
+    """Build the kmi_args dict Blender's importer passes to keymap_items.new().
+
+    Mirrors bl_keymap_utils.io.kmi_args_as_data: defaulted fields are omitted so
+    the file round-trips through Blender unchanged.
+    """
+    args = {"type": kmi.type, "value": kmi.value}
+
+    if kmi.any:
+        args["any"] = True
+    else:
+        for attr in _KMI_MODIFIER_ATTRS:
+            mod = getattr(kmi, attr, 0)
+            if mod:
+                args[attr] = -1 if mod == -1 else True
+
+    key_mod = getattr(kmi, 'key_modifier', 'NONE')
+    if key_mod and key_mod != 'NONE':
+        args["key_modifier"] = key_mod
+
+    direction = getattr(kmi, 'direction', 'ANY')
+    if direction and direction != 'ANY':
+        args["direction"] = direction
+
+    # Blender only accepts `repeat` for the map types that can repeat.
+    if kmi.repeat and (
+            (kmi.map_type == 'KEYBOARD' and kmi.value in {'PRESS', 'ANY'}) or
+            kmi.map_type == 'TEXTINPUT'):
+        args["repeat"] = True
+
+    return args
+
+
+def _kmi_data_or_none(kmi):
+    """Third element of an exported item: {"properties": [...], "active": False} or None."""
+    data = {}
+    props = _kmi_properties_as_data(kmi.properties)
+    if props:
+        data["properties"] = props
+    if kmi.active is False:
+        data["active"] = False
+    return data or None
+
+
+def _kmi_identity(kmi, is_modal):
+    """The id an item is stored under: propvalue for modal keymaps, else idname."""
+    return kmi.propvalue if is_modal else kmi.idname
+
+
 def _kmi_is_modified(kmi, km_name):
     """Compare user KMI against default to detect modifications."""
     wm = bpy.context.window_manager
@@ -41,22 +152,33 @@ def _kmi_is_modified(kmi, km_name):
     if kc_default is None:
         return True  # Can't compare, assume modified
 
-    for km in kc_default.keymaps:
-        if km.name != km_name:
+    km_default = kc_default.keymaps.get(km_name)
+    if km_default is None:
+        return True  # Not in defaults at all, consider modified
+
+    is_modal = km_default.is_modal
+    ident = _kmi_identity(kmi, is_modal)
+    for default_kmi in km_default.keymap_items:
+        if _kmi_identity(default_kmi, is_modal) != ident:
             continue
-        for default_kmi in km.keymap_items:
-            if default_kmi.idname == kmi.idname:
-                if (kmi.type != default_kmi.type or kmi.value != default_kmi.value or
-                        kmi.ctrl != default_kmi.ctrl or kmi.shift != default_kmi.shift or
-                        kmi.alt != default_kmi.alt or kmi.oskey != default_kmi.oskey or
-                        kmi.active != default_kmi.active):
-                    return True
-                return False
+        for attr in _KMI_COMPARE_ATTRS:
+            if getattr(kmi, attr, None) != getattr(default_kmi, attr, None):
+                return True
+        return False
     return True  # Not found in default, consider modified
 
 
 def _generate_keyconfig_data(scope='MODIFIED'):
-    """Generate Blender-compatible keyconfig_data list."""
+    """Generate Blender-compatible keyconfig_data list.
+
+    scope:
+      'MODIFIED'         only the individual bindings that differ from defaults.
+                         Produces partial keymaps - readable as a diff, but not
+                         safe to activate as a keyconfig.
+      'MODIFIED_KEYMAPS' every binding of every keymap the user has touched.
+                         What Blender's own exporter writes; activatable.
+      'ALL'              everything.
+    """
     wm = bpy.context.window_manager
     kc = wm.keyconfigs.user
     if kc is None:
@@ -64,29 +186,26 @@ def _generate_keyconfig_data(scope='MODIFIED'):
 
     keyconfig_data = []
     for km in kc.keymaps:
+        if scope == 'MODIFIED_KEYMAPS' and not km.is_user_modified:
+            continue
+
+        is_modal = km.is_modal
         items = []
         for kmi in km.keymap_items:
             if scope == 'MODIFIED' and not _kmi_is_modified(kmi, km.name):
                 continue
-
-            kmi_data = {
-                "type": kmi.type,
-                "value": kmi.value,
-                "ctrl": kmi.ctrl,
-                "shift": kmi.shift,
-                "alt": kmi.alt,
-                "oskey": kmi.oskey,
-                "key_modifier": kmi.key_modifier,
-                "repeat": kmi.repeat,
-            }
-            props = _kmi_to_properties_dict(kmi)
-            items.append((kmi.idname, kmi_data, props))
+            kmi_id = _kmi_identity(kmi, is_modal)
+            if not kmi_id:
+                continue  # nothing to key the item on
+            items.append((kmi_id, _kmi_args_as_data(kmi), _kmi_data_or_none(kmi)))
 
         if items:
             km_params = {
                 "space_type": km.space_type,
                 "region_type": km.region_type,
             }
+            if is_modal:
+                km_params["modal"] = True
             keyconfig_data.append((km.name, km_params, {"items": items}))
 
     return keyconfig_data
@@ -101,15 +220,18 @@ def _write_export_file(filepath, keyconfig_data):
 
     with open(abs_path, 'w', encoding='utf-8') as f:
         f.write("# Keymap export generated by Keymap Visualizer addon\n")
-        f.write("import os\n\n")
+        f.write("keyconfig_version = {!r}\n".format(tuple(bpy.app.version_file)))
         f.write("keyconfig_data = \\\n")
         f.write(repr(keyconfig_data))
         f.write("\n\n")
         f.write('if __name__ == "__main__":\n')
+        f.write('    import os\n')
         f.write('    from bl_keymap_utils.io import keyconfig_import_from_data\n')
         f.write('    keyconfig_import_from_data(\n')
         f.write('        os.path.splitext(os.path.basename(__file__))[0],\n')
-        f.write('        keyconfig_data)\n')
+        f.write('        keyconfig_data,\n')
+        f.write('        keyconfig_version=keyconfig_version,\n')
+        f.write('    )\n')
 
     return abs_path
 
@@ -164,24 +286,20 @@ def _do_import():
         _log.warning("Could not read import file", exc_info=True)
         return (False, f"Could not read file: {e}")
 
-    # Parse keyconfig_data from the file
+    # Parse keyconfig_data from the file. Parsing the module and picking the
+    # actual assignment beats scanning text: it is immune to formatting, and to
+    # the word "keyconfig_data" appearing earlier in a comment or the header.
     keyconfig_data = None
     try:
-        # Find the line starting with 'keyconfig_data'
-        for line_no, line in enumerate(content.splitlines()):
-            stripped = line.strip()
-            if stripped.startswith("keyconfig_data"):
-                # Extract everything after the first '=' on this line and onwards
-                eq_pos = content.index("keyconfig_data")
-                remainder = content[eq_pos:]
-                # Find the '=' sign
-                eq_idx = remainder.index('=')
-                value_str = remainder[eq_idx + 1:].strip()
-                # Remove line-continuation backslash if present
-                if value_str.startswith('\\'):
-                    value_str = value_str[1:].strip()
-                keyconfig_data = ast.literal_eval(value_str)
-                break
+        tree = ast.parse(content)
+        for node in tree.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            if not any(isinstance(t, ast.Name) and t.id == "keyconfig_data"
+                       for t in node.targets):
+                continue
+            keyconfig_data = ast.literal_eval(node.value)
+            break
     except (ValueError, SyntaxError) as e:
         _log.warning("Failed to parse keyconfig_data from file", exc_info=True)
         return (False, f"Failed to parse keyconfig_data: {e}")
@@ -192,11 +310,7 @@ def _do_import():
     if not isinstance(keyconfig_data, list) or not keyconfig_data:
         return (False, "keyconfig_data is empty or invalid")
 
-    # Push undo before applying
-    from .keymap_data import _push_undo
-    _push_undo()
-
-    # Apply using shared logic from presets
+    # Apply using shared logic from presets (which pushes undo itself)
     from .presets import _apply_keyconfig_data
     success, result = _apply_keyconfig_data(keyconfig_data)
     if not success:

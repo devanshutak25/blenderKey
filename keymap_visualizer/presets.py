@@ -10,7 +10,22 @@ import time
 from . import state
 
 _log = logging.getLogger("keymap_visualizer.presets")
-from .export import _generate_keyconfig_data
+from .export import (_generate_keyconfig_data, _kmi_to_properties_dict,
+                     _kmi_identity)
+
+# KMI fields a stored binding may set when applied to a user keymap, with the
+# value to use when the stored binding omits them. Blender's format omits
+# defaulted fields, so an absent key means "reset to default", not "leave alone".
+_KMI_APPLY_DEFAULTS = (
+    ('shift', False),
+    ('ctrl', False),
+    ('alt', False),
+    ('oskey', False),
+    ('hyper', False),
+    ('key_modifier', 'NONE'),
+    ('direction', 'ANY'),
+    ('repeat', False),
+)
 
 
 def _get_presets_dir():
@@ -92,6 +107,83 @@ def _load_preset(name):
     return True, f"Loaded preset '{name}' ({applied} bindings applied)"
 
 
+def _stored_props_as_dict(props):
+    """Normalise stored operator properties to a plain dict.
+
+    Accepts the [(name, value), ...] list Blender's keyconfig files use and the
+    flat {name: value} dict this addon wrote before 1.0.2.
+    """
+    if isinstance(props, dict):
+        return props
+    if isinstance(props, (list, tuple)):
+        out = {}
+        for pair in props:
+            if isinstance(pair, (list, tuple)) and len(pair) == 2:
+                out[pair[0]] = pair[1]
+        return out
+    return {}
+
+
+def _stored_item_extras(extras):
+    """Split a stored item's third element into (properties dict, active flag).
+
+    Blender's shape is {"properties": [(name, value), ...], "active": False} or
+    None. Files written by this addon before 1.0.2 put a flat property dict
+    there instead, so both are accepted; `active` is None when unspecified.
+    """
+    if extras is None:
+        return {}, None
+    if isinstance(extras, dict):
+        keys = set(extras.keys())
+        if keys and keys <= {"properties", "active"}:
+            return _stored_props_as_dict(extras.get("properties")), extras.get("active")
+        return dict(extras), None
+    return _stored_props_as_dict(extras), None
+
+
+def _iter_apply_fields(kmi_args):
+    """Yield (attr, value) pairs to write onto a KMI for one stored binding.
+
+    `type` and `value` are always present. `any` is written before the
+    individual modifiers, and suppresses them when set, because Blender derives
+    the modifier fields from it.
+    """
+    for attr in ('type', 'value'):
+        if attr in kmi_args:
+            yield attr, kmi_args[attr]
+
+    if kmi_args.get('any'):
+        yield 'any', True
+        skip_modifiers = True
+    else:
+        yield 'any', False
+        skip_modifiers = False
+
+    for attr, default in _KMI_APPLY_DEFAULTS:
+        if skip_modifiers and attr in ('shift', 'ctrl', 'alt', 'oskey', 'hyper'):
+            continue
+        yield attr, kmi_args.get(attr, default)
+
+
+def _kmi_props_match_score(kmi, stored_props):
+    """Count how many of the stored property values this KMI already carries.
+
+    Used to tell apart several bindings of the same operator within one keymap
+    (e.g. the three `mesh.select_mode` items, which differ only by `type`).
+    """
+    if not stored_props:
+        return 0
+    live = _kmi_to_properties_dict(kmi)
+    score = 0
+    for name, val in stored_props.items():
+        try:
+            if name in live and live[name] == val:
+                score += 1
+        except Exception:
+            _log.debug("Could not compare property %s", name, exc_info=True)
+    return score
+
+
 def _apply_keyconfig_data(keyconfig_data):
     """Apply keyconfig_data list to user keymaps. Returns (success, applied_count_or_errmsg)."""
     wm = bpy.context.window_manager
@@ -99,26 +191,74 @@ def _apply_keyconfig_data(keyconfig_data):
     if kc is None:
         return False, "No user keyconfig available"
 
-    applied = 0
+    # Pass 1: resolve every KMI we intend to mutate, without mutating anything.
+    targets = []
     for km_name, km_params, km_content in keyconfig_data:
         items = km_content.get("items", [])
         # Find matching user keymap
         km = kc.keymaps.get(km_name)
         if km is None:
             continue
-        for idname, kmi_data, props in items:
-            # Find matching KMI by idname
-            for kmi in km.keymap_items:
-                if kmi.idname == idname:
-                    try:
-                        if isinstance(kmi_data, dict):
-                            for attr in ('type', 'value', 'ctrl', 'shift', 'alt', 'oskey'):
-                                if attr in kmi_data:
-                                    setattr(kmi, attr, kmi_data[attr])
-                            applied += 1
-                    except Exception:
-                        _log.debug("Could not set KMI attribute %s", attr, exc_info=True)
-                    break
+        # Modal keymaps key their items on propvalue; everything else on idname.
+        is_modal = km.is_modal
+        if not is_modal and isinstance(km_params, dict):
+            is_modal = bool(km_params.get("modal"))
+        # Pool this keymap's items by that id. Each KMI is consumed by at most
+        # one stored binding, so N stored bindings of an operator apply to N
+        # items instead of all landing on the first one.
+        by_id = {}
+        for kmi in km.keymap_items:
+            by_id.setdefault(_kmi_identity(kmi, is_modal), []).append(kmi)
+        for kmi_id, kmi_args, extras in items:
+            if not isinstance(kmi_args, dict):
+                continue
+            pool = by_id.get(kmi_id)
+            if not pool:
+                continue
+            stored_props, stored_active = _stored_item_extras(extras)
+            if len(pool) == 1:
+                kmi = pool.pop(0)
+            else:
+                # Several bindings of this operator here: pick the one whose
+                # properties best match what was stored.
+                best_i, best_score = 0, -1
+                for i, candidate in enumerate(pool):
+                    score = _kmi_props_match_score(candidate, stored_props)
+                    if score > best_score:
+                        best_i, best_score = i, score
+                kmi = pool.pop(best_i)
+            targets.append((km_name, kmi, kmi_args, stored_active))
+
+    if not targets:
+        state._invalidate_cache()
+        return True, 0
+
+    # Snapshot exactly what is about to change, before any of it changes.
+    # This is the single mutation point for preset load, clipboard paste and
+    # file import, so every one of those paths becomes undoable here.
+    from .keymap_data import _push_undo
+    _push_undo([t[1] for t in targets])
+
+    # Pass 2: apply. Each field is set independently so one rejected value
+    # cannot leave a binding half-written.
+    applied = 0
+    for km_name, kmi, kmi_args, stored_active in targets:
+        ok = False
+        for attr, value in _iter_apply_fields(kmi_args):
+            try:
+                setattr(kmi, attr, value)
+                ok = True
+            except Exception:
+                _log.debug("Could not set %s on KMI '%s' in keymap '%s'",
+                           attr, kmi.idname, km_name, exc_info=True)
+        if stored_active is not None:
+            try:
+                kmi.active = bool(stored_active)
+            except Exception:
+                _log.debug("Could not set active on KMI '%s' in keymap '%s'",
+                           kmi.idname, km_name, exc_info=True)
+        if ok:
+            applied += 1
 
     state._invalidate_cache()
     return True, applied
